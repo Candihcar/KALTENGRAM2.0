@@ -293,7 +293,7 @@ export default function ChatPage() {
                 </button>
                 {showEmoji && (
                   <div className="absolute bottom-full right-0 mb-2 z-50">
-                    <EmojiPicker onEmojiClick={(emoji) => { setText((prev) => prev + emoji.emoji); setShowEmoji(false) }} theme="dark" width={320} height={400} />
+                    <EmojiPicker onEmojiClick={(emoji) => { setText((prev) => prev + emoji.emoji); setShowEmoji(false) }} width={320} height={400} />
                   </div>
                 )}
               </div>
