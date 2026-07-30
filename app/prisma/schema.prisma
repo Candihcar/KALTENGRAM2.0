@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  displayName  String
+  passwordHash String
+  image        String?
+  bio          String?
+  online       Boolean  @default(false)
+  lastSeen     DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sentMessages    Message[]
+  chatMemberships ChatMember[]
+  initiatedCalls  Call[] @relation("InitiatedCalls")
+  receivedCalls   Call[] @relation("ReceivedCalls")
+
+  @@map("users")
+}
+
+model Chat {
+  id        String   @id @default(cuid())
+  type      String   @default("DIRECT")
+  name      String?
+  image     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages Message[]
+  members  ChatMember[]
+  calls    Call[]
+
+  @@map("chats")
+}
+
+model ChatMember {
+  chatId   String
+  userId   String
+  role     String   @default("MEMBER")
+  joinedAt DateTime @default(now())
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([chatId, userId])
+  @@map("chat_members")
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  chatId    String
+  senderId  String
+  content   String?
+  type      String   @default("TEXT")
+  fileUrl   String?
+  replyToId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender User   @relation(fields: [senderId], references: [id])
+  replyTo Message?  @relation("Replies", fields: [replyToId], references: [id])
+  replies Message[] @relation("Replies")
+
+  @@index([chatId, createdAt])
+  @@map("messages")
+}
+
+model Call {
+  id         String   @id @default(cuid())
+  chatId     String
+  callerId   String
+  receiverId String
+  status     String   @default("RINGING")
+  startedAt  DateTime @default(now())
+  endedAt    DateTime?
+
+  chat     Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  caller   User @relation("InitiatedCalls", fields: [callerId], references: [id])
+  receiver User @relation("ReceivedCalls", fields: [receiverId], references: [id])
+
+  @@map("calls")
+}
