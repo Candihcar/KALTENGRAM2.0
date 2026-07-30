@@ -2,8 +2,5 @@
   "framework": "nextjs",
   "buildCommand": "npx prisma generate && next build",
   "installCommand": "npm install",
-  "outputDirectory": ".next",
-  "env": {
-    "NEXT_PUBLIC_VERCEL_URL": "@vercel_url"
-  }
+  "outputDirectory": ".next"
 }
