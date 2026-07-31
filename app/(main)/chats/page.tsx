@@ -229,7 +229,7 @@ export default function ChatsPage() {
                   </svg>
                 </button>
                 <input type="text" className="flex-1 bg-transparent text-sm outline-none placeholder:text-text-muted"
-                  placeholder="Поиск пользователей..." value={searchQuery}
+                  placeholder="Поиск по @юзернейму..." value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)} autoFocus />
               </div>
 
@@ -265,8 +265,8 @@ export default function ChatsPage() {
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{user.displayName}</p>
-                      <p className="text-xs text-text-muted">@{user.username}</p>
+                      <p className="text-sm font-medium truncate">@{user.username}</p>
+                      <p className="text-xs text-text-muted truncate">{user.displayName}</p>
                     </div>
                     {user.online && <div className="w-2.5 h-2.5 bg-success rounded-full" />}
                   </button>

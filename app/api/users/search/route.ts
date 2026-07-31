@@ -10,17 +10,16 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url)
-  const query = searchParams.get('q')
+  const raw = searchParams.get('q')
 
-  if (!query || query.length < 1) return NextResponse.json([])
+  if (!raw || raw.trim().length < 1) return NextResponse.json([])
+
+  const query = raw.trim().replace(/^@/, '')
 
   const users = await prisma.user.findMany({
     where: {
       id: { not: session.user.id },
-      OR: [
-        { displayName: { contains: query, mode: 'insensitive' } },
-        { username: { contains: query, mode: 'insensitive' } },
-      ],
+      username: { contains: query, mode: 'insensitive' },
     },
     select: { id: true, username: true, displayName: true, image: true, online: true },
     take: 20,
