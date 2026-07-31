@@ -149,7 +149,7 @@ export function CallUI({
             ['ENDED', 'DECLINED', 'MISSED'].includes(updated.status) &&
             !endedRef.current
           ) {
-            toast.info(
+            toast(
               updated.status === 'DECLINED' ? 'Звонок отклонён' : 'Звонок завершён'
             )
             cleanup()
