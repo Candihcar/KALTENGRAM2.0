@@ -15,6 +15,7 @@ import {
   e2eDecryptText,
   e2eEncryptDataUrl,
   e2eEncryptText,
+  e2eFingerprintEmoji,
   e2eNewMessageKey,
   e2eUnwrapMessageKey,
   e2eWrapMessageKey,
@@ -79,6 +80,9 @@ export default function ChatPage() {
   const [decoded, setDecoded] = useState<Record<string, DecodedMessage>>({})
   const [replyPreviews, setReplyPreviews] = useState<Record<string, string>>({})
   const [unlocked, setUnlocked] = useState(false)
+  const [verifications, setVerifications] = useState<Record<string, { fingerprint: string; verifiedAt: string }>>({})
+  const [chatFingerprint, setChatFingerprint] = useState<string[] | null>(null)
+  const [fingerprintKey, setFingerprintKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
@@ -104,6 +108,40 @@ export default function ChatPage() {
   useEffect(() => {
     if (!chat || !unlocked) return
     getPubKeys(chat.members.map((m) => m.userId))
+  }, [chat, unlocked])
+
+  useEffect(() => {
+    if (!chat || !unlocked || chat.type === 'GROUP') return
+    const other = getOtherUser()
+    if (!other) return
+    let disposed = false
+    async function load() {
+      const st = getE2EState()
+      const pubs = await getPubKeys([other.id])
+      const otherPub = pubs.get(other.id)
+      if (st && otherPub) {
+        try {
+          const words = await e2eFingerprintEmoji(st.pubB64, otherPub)
+          if (!disposed) {
+            setChatFingerprint(words)
+            setFingerprintKey(words.join(' '))
+          }
+        } catch {
+          if (!disposed) setChatFingerprint(null)
+        }
+      } else if (!disposed) {
+        setChatFingerprint(null)
+        setFingerprintKey(null)
+      }
+      try {
+        const res = await fetch('/api/e2e/verifications')
+        if (res.ok && !disposed) setVerifications(await res.json())
+      } catch {}
+    }
+    load()
+    return () => {
+      disposed = true
+    }
   }, [chat, unlocked])
 
   useEffect(() => {
@@ -315,6 +353,43 @@ export default function ChatPage() {
     } catch {}
   }
 
+  async function verifyContact() {
+    if (!otherUser || !fingerprintKey) return
+    try {
+      const res = await fetch('/api/e2e/verifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactId: otherUser.id, fingerprint: fingerprintKey }),
+      })
+      if (res.ok) {
+        setVerifications((prev) => ({
+          ...prev,
+          [otherUser.id]: { fingerprint: fingerprintKey, verifiedAt: new Date().toISOString() },
+        }))
+        toast.success('Контакт проверен')
+      } else {
+        toast.error('Ошибка')
+      }
+    } catch {
+      toast.error('Ошибка')
+    }
+  }
+
+  async function unverifyContact() {
+    if (!otherUser) return
+    try {
+      const res = await fetch(`/api/e2e/verifications?contactId=${otherUser.id}`, { method: 'DELETE' })
+      if (res.ok) {
+        setVerifications((prev) => {
+          const next = { ...prev }
+          delete next[otherUser.id]
+          return next
+        })
+        toast.success('Отметка снята')
+      }
+    } catch {}
+  }
+
   function getChatName(): string {
     if (!chat) return ''
     if (chat.type === 'GROUP') return chat.name || 'Без названия'
@@ -358,6 +433,9 @@ export default function ChatPage() {
   const otherUser = getOtherUser()
   const chatName = getChatName()
   const chatImage = getChatImage()
+  const verification = otherUser ? verifications[otherUser.id] : undefined
+  const isVerified = !!verification && !!fingerprintKey && verification.fingerprint === fingerprintKey
+  const keyChanged = !!verification && !!fingerprintKey && verification.fingerprint !== fingerprintKey
 
   return (
     <div className="flex h-dvh bg-bg-chat overscroll-x-none">
@@ -383,7 +461,14 @@ export default function ChatPage() {
                   </div>
                 )}
                 <div className="min-w-0">
-                  <h2 className="font-medium text-sm truncate">{chatName}</h2>
+                  <div className="flex items-center gap-1 min-w-0">
+                    <h2 className="font-medium text-sm truncate">{chatName}</h2>
+                    {isVerified && (
+                      <svg className="w-4 h-4 text-success flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                  </div>
                   <p className={`text-xs ${isOtherOnline() ? 'text-success' : 'text-text-muted'}`}>
                     {isOtherOnline() ? 'В сети' : chat.type === 'GROUP' ? `${chat.members.length} участников` : otherUser?.lastSeen ? formatLastSeen(otherUser.lastSeen) : 'Не в сети'}
                   </p>
@@ -654,6 +739,43 @@ export default function ChatPage() {
                 <div className="mt-4 flex items-center justify-center gap-3">
                   <CallButton receiverId={otherUser.id} type="audio" />
                   <CallButton receiverId={otherUser.id} type="video" />
+                </div>
+                <div className="mt-6 pt-5 border-t border-gray-700/20 text-left">
+                  <p className="text-xs text-text-muted font-medium uppercase mb-2">Проверка безопасности</p>
+                  {chatFingerprint ? (
+                    <>
+                      <div className="text-2xl tracking-[0.2em] text-center mb-1">{chatFingerprint.join(' ')}</div>
+                      <p className="text-[11px] text-text-muted text-center mb-3">
+                        Сравните этот код с собеседником лично или по видео — у него отображается такой же.
+                      </p>
+                      {isVerified && (
+                        <div className="flex items-center justify-center gap-1.5 text-success text-sm mb-2">
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          </svg>
+                          <span>Проверенный контакт</span>
+                        </div>
+                      )}
+                      {keyChanged && (
+                        <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-400 text-center mb-2">
+                          Ключ собеседника изменился с момента проверки.
+                          Возможно, он переустановил приложение, или аккаунт взломан. Перепроверьте код.
+                        </div>
+                      )}
+                      <button
+                        onClick={isVerified ? unverifyContact : verifyContact}
+                        className={`w-full text-sm py-2.5 rounded-xl transition-colors ${
+                          isVerified
+                            ? 'bg-bg-hover text-text-secondary hover:text-danger'
+                            : 'bg-primary text-white hover:bg-primary-hover'
+                        }`}
+                      >
+                        {isVerified ? 'Снять отметку' : 'Подтвердить контакт'}
+                      </button>
+                    </>
+                  ) : (
+                    <p className="text-xs text-text-muted">Включите шифрование, чтобы проверить контакт.</p>
+                  )}
                 </div>
               </div>
             )}

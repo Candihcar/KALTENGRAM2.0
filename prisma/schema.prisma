@@ -28,8 +28,26 @@ model User {
   chatMemberships ChatMember[]
   initiatedCalls  Call[] @relation("InitiatedCalls")
   receivedCalls   Call[] @relation("ReceivedCalls")
+  verifiedContacts ContactVerification[] @relation("VerifiedContacts")
+  verifiedBy      ContactVerification[] @relation("VerifiedBy")
 
   @@map("users")
+}
+
+model ContactVerification {
+  id          String   @id @default(cuid())
+  userId      String
+  contactId   String
+  fingerprint String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user    User @relation("VerifiedBy", fields: [userId], references: [id], onDelete: Cascade)
+  contact User @relation("VerifiedContacts", fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contactId])
+  @@index([userId])
+  @@map("contact_verifications")
 }
 
 model Chat {

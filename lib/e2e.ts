@@ -166,3 +166,28 @@ export async function e2eDecryptDataUrl(payload: EncryptedPayload, mk: CryptoKey
   )
   return e2eTextDecoder.decode(pt)
 }
+
+export const VERIFY_EMOJI = [
+  '🐶','🐱','🦊','🐼','🐨','🐯','🦁','🐸','🐵','🐷','🦄','🐬',
+  '🐙','🦋','🐞','🐝','🦉','🦅','🦜','🐢','🐊','🦈','🐳','🦑',
+  '🍎','🍋','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥥','🌽','🥕',
+  '🌻','🌹','🌵','🎄','🍁','🍄','⭐','🌙','☀️','🌈','⚡','🔥',
+  '💎','⚽','🏀','🎱','🎮','🎲','🎸','🎹','🚀','✈️','🚗','🏎️',
+  '🍕','🍔','🍟','🌮','🍩','🍪','🧁','🍦',
+]
+
+export async function e2eFingerprintEmoji(pubA: string, pubB: string): Promise<string[]> {
+  const a = e2eUnb64(pubA)
+  const b = e2eUnb64(pubB)
+  const input = new Uint8Array(a.length + b.length)
+  if (pubA < pubB) {
+    input.set(a, 0)
+    input.set(b, a.length)
+  } else {
+    input.set(b, 0)
+    input.set(a, b.length)
+  }
+  const digest = await crypto.subtle.digest('SHA-256', e2eBuf(input))
+  const arr = new Uint8Array(digest)
+  return [0, 1, 2, 3].map((i) => VERIFY_EMOJI[arr[i * 2] % VERIFY_EMOJI.length])
+}
