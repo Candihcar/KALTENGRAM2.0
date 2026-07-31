@@ -346,6 +346,5 @@ export default function ChatsPage() {
           )}
         </div>
       </div>
-    </div>
   )
 }
