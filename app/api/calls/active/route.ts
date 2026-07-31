@@ -16,7 +16,7 @@ export async function GET() {
         { callerId: session.user.id, status: 'ONGOING' },
       ],
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { startedAt: 'desc' },
     include: {
       caller: { select: { id: true, displayName: true, image: true } },
       receiver: { select: { id: true, displayName: true, image: true } },
