@@ -24,6 +24,13 @@ export default function ChatsPage() {
   const [showSearch, setShowSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [showMenu, setShowMenu] = useState(false)
+  const [me, setMe] = useState<{ image: string | null } | null>(null)
+
+  useEffect(() => {
+    if (session?.user?.id) {
+      fetch(`/api/users/${session.user.id}`).then((r) => r.ok ? r.json() : null).then((d) => setMe(d)).catch(() => {})
+    }
+  }, [session?.user?.id])
 
   useEffect(() => { fetchChats() }, [])
 
@@ -180,8 +187,8 @@ export default function ChatsPage() {
           <div className="px-5 py-4 flex items-center justify-between border-b border-gray-700/20">
             <div className="relative">
               <button onClick={() => setShowMenu(!showMenu)} className="flex items-center gap-3 hover:bg-bg-hover rounded-xl p-1.5 transition-colors">
-                {session?.user?.image ? (
-                  <img src={session.user.image} alt="" className="w-9 h-9 rounded-full object-cover" />
+                {me?.image ? (
+                  <img src={me.image} alt="" className="w-9 h-9 rounded-full object-cover" />
                 ) : (
                   <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-sm font-bold">
                     {getInitials(session?.user?.name || 'U')}
