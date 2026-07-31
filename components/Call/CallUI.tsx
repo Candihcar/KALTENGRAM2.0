@@ -40,6 +40,7 @@ export function CallUI({
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
   const [previewPos, setPreviewPos] = useState({ x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
+  const [uiCollapsed, setUiCollapsed] = useState(false)
   const [isTouchDevice] = useState(
     () => typeof window !== 'undefined' && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window)
   )
@@ -55,6 +56,7 @@ export function CallUI({
   const remoteDescRef = useRef(false)
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([])
   const dragStartRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null)
+  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     let disposed = false
@@ -252,6 +254,27 @@ export function CallUI({
     }
   }, [remoteStream])
 
+  useEffect(() => {
+    if (!connected) return
+    setUiCollapsed(false)
+    const t = setTimeout(() => setUiCollapsed(true), 3000)
+    return () => clearTimeout(t)
+  }, [connected])
+
+  useEffect(
+    () => () => {
+      if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current)
+    },
+    []
+  )
+
+  function toggleUi() {
+    if (!connected) return
+    setUiCollapsed(false)
+    if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current)
+    collapseTimerRef.current = setTimeout(() => setUiCollapsed(true), 4000)
+  }
+
   function getPreviewSize() {
     return {
       w: previewRef.current?.offsetWidth ?? 112,
@@ -328,31 +351,53 @@ export function CallUI({
     const stream = streamRef.current
     if (!stream) return
     const next = facingMode === 'user' ? 'environment' : 'user'
+    const peer = peerRef.current
+    const sender = peer?.getSenders().find((s) => s.track?.kind === 'video')
+    const wasOff = isVideoOff
     try {
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: next },
-      })
-      const newTrack = newStream.getVideoTracks()[0]
-      if (!newTrack) {
-        newStream.getTracks().forEach((t) => t.stop())
-        throw new Error('no track')
+      stream.getVideoTracks().forEach((t) => t.stop())
+
+      let newTrack: MediaStreamTrack | null = null
+      try {
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { exact: next } },
+        })
+        newTrack = newStream.getVideoTracks()[0]
+      } catch {
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: next },
+        })
+        newTrack = newStream.getVideoTracks()[0]
       }
-      stream.getVideoTracks().forEach((t) => {
-        stream.removeTrack(t)
-        t.stop()
-      })
+      if (!newTrack) throw new Error('no track')
+
+      stream.getVideoTracks().forEach((t) => stream.removeTrack(t))
       stream.addTrack(newTrack)
+      newTrack.enabled = !wasOff
+
       if (localVideoRef.current) localVideoRef.current.srcObject = stream
-      const peer = peerRef.current
-      if (peer) {
-        const sender = peer.getSenders().find((s) => s.track?.kind === 'video')
-        if (sender) await sender.replaceTrack(newTrack)
-      }
-      if (isVideoOff) newTrack.enabled = false
+      if (sender) await sender.replaceTrack(newTrack)
+
       setFacingMode(next)
     } catch {
       toast.error('Не удалось переключить камеру')
+      try {
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: true,
+        })
+        const restored = newStream.getVideoTracks()[0]
+        if (restored) {
+          stream.getVideoTracks().forEach((t) => stream.removeTrack(t))
+          stream.addTrack(restored)
+          restored.enabled = !wasOff
+          if (localVideoRef.current) localVideoRef.current.srcObject = stream
+          const s = peer?.getSenders().find((x) => x.track?.kind === 'video')
+          if (s) await s.replaceTrack(restored)
+        }
+      } catch {}
     }
   }
 
@@ -410,31 +455,66 @@ export function CallUI({
           }`}
         />
 
-        <div className={`relative text-center px-4 ${connected ? '' : 'z-10'}`}>
-          {otherUser.image ? (
-            <img
-              src={otherUser.image}
-              alt=""
-              className="w-24 h-24 sm:w-28 sm:h-28 rounded-full mx-auto mb-4 border-4 border-gray-700/50 shadow-xl"
-            />
-          ) : (
-            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-4xl font-bold mx-auto mb-4 border-4 border-gray-700/50 shadow-xl">
-              {otherUser.displayName[0]}
-            </div>
-          )}
-          <h3 className="text-xl sm:text-2xl font-semibold text-white">{otherUser.displayName}</h3>
-          <p className="text-gray-400 mt-2">
-            {connected ? (
-              formatDuration(duration)
-            ) : isCaller ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="w-2 h-2 bg-success rounded-full animate-pulse-dot" />
-                Звонит...
-              </span>
+        {connected && (
+          <button
+            type="button"
+            aria-label="Переключить интерфейс"
+            onClick={toggleUi}
+            className="absolute inset-0 z-10 cursor-default bg-transparent"
+          />
+        )}
+
+        <div
+          className={`absolute inset-0 z-20 pointer-events-none flex flex-col items-center justify-center transition-transform duration-500 ease-out px-4 ${
+            connected && uiCollapsed ? '-translate-y-[40%]' : 'translate-y-0'
+          }`}
+        >
+          <div
+            className={`flex flex-col items-center text-center transition-all duration-500 ${
+              connected && uiCollapsed ? 'opacity-50 scale-75' : 'opacity-100 scale-100'
+            }`}
+          >
+            {otherUser.image ? (
+              <img
+                src={otherUser.image}
+                alt=""
+                className={`rounded-full border-4 border-gray-700/50 shadow-xl transition-all duration-500 ${
+                  connected && uiCollapsed ? 'w-12 h-12 mb-1' : 'w-24 h-24 sm:w-28 sm:h-28 mb-4'
+                }`}
+              />
             ) : (
-              'Подключение...'
+              <div
+                className={`rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center border-4 border-gray-700/50 shadow-xl transition-all duration-500 ${
+                  connected && uiCollapsed ? 'w-12 h-12 text-base mb-1' : 'w-24 h-24 sm:w-28 sm:h-28 text-4xl font-bold mb-4'
+                }`}
+              >
+                {otherUser.displayName[0]}
+              </div>
             )}
-          </p>
+            <h3
+              className={`font-semibold text-white transition-all duration-500 ${
+                connected && uiCollapsed ? 'text-sm' : 'text-xl sm:text-2xl'
+              }`}
+            >
+              {otherUser.displayName}
+            </h3>
+            <p
+              className={`text-gray-400 transition-all duration-500 ${
+                connected && uiCollapsed ? 'text-xs mt-0.5' : 'text-sm mt-2'
+              }`}
+            >
+              {connected ? (
+                formatDuration(duration)
+              ) : isCaller ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-2 h-2 bg-success rounded-full animate-pulse-dot" />
+                  Звонит...
+                </span>
+              ) : (
+                'Подключение...'
+              )}
+            </p>
+          </div>
         </div>
 
         <div
@@ -443,7 +523,7 @@ export function CallUI({
           onPointerMove={onPreviewPointerMove}
           onPointerUp={onPreviewPointerUp}
           onPointerCancel={onPreviewPointerUp}
-          className={`absolute z-20 w-28 h-40 sm:w-44 sm:h-60 rounded-xl sm:rounded-2xl overflow-hidden border-2 border-white/20 shadow-xl bg-gray-800 cursor-grab select-none touch-none ${
+          className={`absolute z-30 w-28 h-40 sm:w-44 sm:h-60 rounded-xl sm:rounded-2xl overflow-hidden border-2 border-white/20 shadow-xl bg-gray-800 cursor-grab select-none touch-none ${
             dragging ? 'cursor-grabbing scale-105 shadow-2xl' : 'transition-all duration-200 ease-out'
           }`}
           style={{ left: previewPos.x, top: previewPos.y }}
