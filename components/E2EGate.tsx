@@ -16,14 +16,16 @@ export function E2EGate({ children }: { children: React.ReactNode }) {
   const [confirmReset, setConfirmReset] = useState(false)
 
   useEffect(() => {
-    if (status !== 'authenticated' || !session?.user?.id) return
+    if (status !== 'authenticated') return
+    const userId = session?.user?.id
+    if (!userId) return
     let disposed = false
     async function check() {
       if (isE2EUnlocked()) {
         if (!disposed) setReady(true)
         return
       }
-      if (await restoreE2E(session.user.id as string)) {
+      if (await restoreE2E(userId)) {
         if (!disposed) setReady(true)
         return
       }
