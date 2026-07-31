@@ -65,16 +65,31 @@ model Message {
   type      String   @default("TEXT")
   fileUrl   String?
   replyToId String?
+  readAt    DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  sender User   @relation(fields: [senderId], references: [id])
-  replyTo Message?  @relation("Replies", fields: [replyToId], references: [id])
-  replies Message[] @relation("Replies")
+  chat        Chat                @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender      User                @relation(fields: [senderId], references: [id])
+  replyTo     Message?            @relation("Replies", fields: [replyToId], references: [id])
+  replies     Message[]           @relation("Replies")
+  attachments MessageAttachment[]
 
   @@index([chatId, createdAt])
   @@map("messages")
+}
+
+model MessageAttachment {
+  id        String   @id @default(cuid())
+  messageId String
+  type      String   @default("IMAGE")
+  url       String
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("message_attachments")
 }
 
 model Call {

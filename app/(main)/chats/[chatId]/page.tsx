@@ -21,9 +21,10 @@ interface ChatData {
 }
 
 interface Message {
-  id: string; content: string | null; type: string; fileUrl: string | null; createdAt: string
+  id: string; content: string | null; type: string; fileUrl: string | null; readAt: string | null; createdAt: string
   sender: { id: string; displayName: string; image: string | null; username: string }
   replyTo: { id: string; content: string | null; sender: { displayName: string } } | null
+  attachments: { id: string; url: string; type: string }[]
 }
 
 export default function ChatPage() {
@@ -39,6 +40,7 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false)
   const [showEmoji, setShowEmoji] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
+  const [previews, setPreviews] = useState<{ id: string; url: string; file: File }[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -58,6 +60,7 @@ export default function ChatPage() {
     if (res.ok) {
       const data = await res.json()
       setMessages(data.messages || [])
+      markRead()
     }
   }
 
@@ -107,7 +110,18 @@ export default function ChatPage() {
       if (disposed || !pusher) return
       const channel = pusher.subscribe(`chat-${chatId}`)
       chatChannel.current = channel
-      channel.bind('new-message', appendMessage)
+      channel.bind('new-message', (msg: Message) => {
+        if (msg.sender.id !== session?.user?.id) markRead()
+        appendMessage(msg)
+      })
+      channel.bind(
+        'messages-read',
+        ({ ids, readAt }: { ids: string[]; readAt: string }) => {
+          setMessages((prev) =>
+            prev.map((m) => (ids.includes(m.id) ? { ...m, readAt } : m))
+          )
+        }
+      )
     })
 
     return () => {
@@ -119,18 +133,38 @@ export default function ChatPage() {
     }
   }, [chatId, session?.user?.id, appendMessage])
 
-  async function sendMessage(content?: string, type?: string, fileUrl?: string) {
-    const msgContent = content || text
-    if (!msgContent && !fileUrl) return
+  async function sendMessage() {
+    const msgContent = text.trim()
+    if (!msgContent && previews.length === 0) return
     setSending(true)
     try {
+      const attachmentUrls: string[] = []
+      for (const p of previews) {
+        const formData = new FormData()
+        formData.append('file', p.file)
+        const upRes = await fetch('/api/upload', { method: 'POST', body: formData })
+        if (!upRes.ok) {
+          const d = await upRes.json()
+          toast.error(d.error || 'Ошибка загрузки')
+          setSending(false)
+          return
+        }
+        const data = await upRes.json()
+        attachmentUrls.push(data.url)
+      }
+
       const res = await fetch(`/api/chats/${chatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: msgContent, type: type || 'TEXT', fileUrl }),
+        body: JSON.stringify({
+          content: msgContent || null,
+          type: attachmentUrls.length ? 'IMAGE' : 'TEXT',
+          attachments: attachmentUrls,
+        }),
       })
       if (res.ok) {
         setText('')
+        setPreviews([])
         await fetchMessages()
       } else {
         const data = await res.json()
@@ -140,32 +174,31 @@ export default function ChatPage() {
     finally { setSending(false) }
   }
 
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith('image/')) {
-      toast.error('Поддерживаются только изображения')
-      if (fileInputRef.current) fileInputRef.current.value = ''
-      return
-    }
-    const formData = new FormData()
-    try {
-      const compressed = await compressImage(file, 1280, 0.8)
-      formData.append('file', compressed)
-    } catch {
-      formData.append('file', file)
-    }
-    try {
-      const res = await fetch('/api/upload', { method: 'POST', body: formData })
-      if (res.ok) {
-        const data = await res.json()
-        await sendMessage(undefined, data.type, data.url)
-      } else {
-        const data = await res.json()
-        toast.error(data.error || 'Ошибка загрузки')
-      }
-    } catch { toast.error('Ошибка') }
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || [])
     if (fileInputRef.current) fileInputRef.current.value = ''
+    if (!files.length) return
+
+    const images = files.filter((f) => f.type.startsWith('image/'))
+    if (images.length !== files.length) toast.error('Поддерживаются только изображения')
+
+    for (const file of images) {
+      let f = file
+      try {
+        f = await compressImage(file, 1280, 0.8)
+      } catch {}
+      const url = URL.createObjectURL(f)
+      setPreviews((prev) => [
+        ...prev,
+        { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, url, file: f },
+      ])
+    }
+  }
+
+  async function markRead() {
+    try {
+      await fetch(`/api/chats/${chatId}/read`, { method: 'POST' })
+    } catch {}
   }
 
   function getChatName(): string {
@@ -294,13 +327,28 @@ export default function ChatPage() {
                         </div>
                       )}
 
-                      {msg.type === 'IMAGE' && msg.fileUrl && (
-                        <div className="mb-1.5 -mx-1">
-                          <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer">
-                            <img src={msg.fileUrl} alt="" className="max-w-full rounded-xl max-h-72 object-cover cursor-pointer hover:opacity-95 transition-opacity" loading="lazy" />
-                          </a>
-                        </div>
-                      )}
+                      {(() => {
+                        const attachments = msg.attachments?.length
+                          ? msg.attachments
+                          : msg.fileUrl
+                            ? [{ id: msg.fileUrl, url: msg.fileUrl, type: 'IMAGE' }]
+                            : []
+                        if (!attachments.length) return null
+                        return (
+                          <div className={`mb-1.5 -mx-1 ${attachments.length > 1 ? 'grid grid-cols-2 gap-1' : ''}`}>
+                            {attachments.map((att) => (
+                              <a key={att.id} href={att.url} target="_blank" rel="noopener noreferrer">
+                                <img
+                                  src={att.url}
+                                  alt=""
+                                  className="max-w-full rounded-xl max-h-72 object-cover cursor-pointer hover:opacity-95 transition-opacity w-full"
+                                  loading="lazy"
+                                />
+                              </a>
+                            ))}
+                          </div>
+                        )
+                      })()}
 
                       {msg.type === 'VIDEO' && msg.fileUrl && (
                         <div className="mb-1.5 -mx-1">
@@ -316,11 +364,16 @@ export default function ChatPage() {
                         <span className={`text-[10px] ${isOwn ? 'text-blue-300/70' : 'text-gray-500'}`}>
                           {new Date(msg.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
                         </span>
-                        {isOwn && (
-                          <svg className="w-3.5 h-3.5 text-blue-300/70" viewBox="0 0 16 11" fill="currentColor">
+                        {isOwn && (msg.readAt ? (
+                          <svg className="w-4 h-3 text-success" viewBox="0 0 18 11" fill="currentColor" title="Прочитано">
+                            <path transform="translate(7.6 0)" d="M11.071.653a.457.457 0 00-.304-.102.493.493 0 00-.381.178l-6.19 7.636-2.011-2.095a.463.463 0 00-.336-.153.457.457 0 00-.336.102.518.518 0 00-.127.356c0 .102.025.204.076.28l2.265 2.36c.102.127.228.19.38.19.153 0 .279-.063.381-.19l6.599-8.16a.477.477 0 00.102-.305.518.518 0 00-.178-.382l-.33-.315z"/>
+                            <path transform="translate(0 0)" d="M11.071.653a.457.457 0 00-.304-.102.493.493 0 00-.381.178l-6.19 7.636-2.011-2.095a.463.463 0 00-.336-.153.457.457 0 00-.336.102.518.518 0 00-.127.356c0 .102.025.204.076.28l2.265 2.36c.102.127.228.19.38.19.153 0 .279-.063.381-.19l6.599-8.16a.477.477 0 00.102-.305.518.518 0 00-.178-.382l-.33-.315z"/>
+                          </svg>
+                        ) : (
+                          <svg className="w-3.5 h-3 text-success" viewBox="0 0 16 11" fill="currentColor" title="Отправлено">
                             <path d="M11.071.653a.457.457 0 00-.304-.102.493.493 0 00-.381.178l-6.19 7.636-2.011-2.095a.463.463 0 00-.336-.153.457.457 0 00-.336.102.518.518 0 00-.127.356c0 .102.025.204.076.28l2.265 2.36c.102.127.228.19.38.19.153 0 .279-.063.381-.19l6.599-8.16a.477.477 0 00.102-.305.518.518 0 00-.178-.382l-.33-.315z"/>
                           </svg>
-                        )}
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -332,13 +385,33 @@ export default function ChatPage() {
 
           {/* Input */}
           <div className="px-5 py-3 bg-bg border-t border-gray-700/20">
+            {previews.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {previews.map((p) => (
+                  <div key={p.id} className="relative w-16 h-16 rounded-xl overflow-hidden border border-gray-700/40">
+                    <img src={p.url} alt="" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        URL.revokeObjectURL(p.url)
+                        setPreviews((prev) => prev.filter((x) => x.id !== p.id))
+                      }}
+                      className="absolute top-0 right-0 w-5 h-5 bg-black/60 text-white rounded-bl-lg flex items-center justify-center text-xs"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="flex items-end gap-2">
               <button onClick={() => fileInputRef.current?.click()} className="p-2.5 hover:bg-bg-hover rounded-xl transition-colors flex-shrink-0">
                 <svg className="w-5 h-5 text-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                 </svg>
               </button>
-              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+              <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileSelect} className="hidden" />
 
               <div className="flex-1 relative">
                 <input
@@ -361,7 +434,7 @@ export default function ChatPage() {
                 )}
               </div>
 
-              <button onClick={() => sendMessage()} disabled={!text.trim() || sending}
+              <button onClick={() => sendMessage()} disabled={(!text.trim() && previews.length === 0) || sending}
                 className="p-3 bg-primary text-white rounded-xl hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0">
                 {sending ? (
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />

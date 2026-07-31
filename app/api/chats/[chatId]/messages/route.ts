@@ -22,6 +22,7 @@ export async function GET(request: Request, { params }: { params: { chatId: stri
     include: {
       sender: { select: { id: true, username: true, displayName: true, image: true } },
       replyTo: { include: { sender: { select: { id: true, displayName: true } } } },
+      attachments: true,
     },
   })
 
@@ -38,7 +39,7 @@ export async function POST(request: Request, { params }: { params: { chatId: str
   }
 
   try {
-    const { content, type, fileUrl, replyToId } = await request.json()
+    const { content, type, fileUrl, replyToId, attachments } = await request.json()
 
     const member = await prisma.chatMember.findUnique({
       where: { chatId_userId: { chatId: params.chatId, userId: session.user.id } },
@@ -53,12 +54,23 @@ export async function POST(request: Request, { params }: { params: { chatId: str
         senderId: session.user.id,
         content,
         type: type || 'TEXT',
-        fileUrl,
+        fileUrl: fileUrl || (attachments?.[0] as string) || null,
         replyToId,
+        ...(attachments?.length
+          ? {
+              attachments: {
+                create: (attachments as string[]).map((url: string) => ({
+                  type: 'IMAGE',
+                  url,
+                })),
+              },
+            }
+          : {}),
       },
       include: {
         sender: { select: { id: true, username: true, displayName: true, image: true } },
         replyTo: { include: { sender: { select: { id: true, displayName: true } } } },
+        attachments: true,
       },
     })
 
