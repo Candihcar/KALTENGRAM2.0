@@ -2,11 +2,22 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getMySpaceIds } from '@/lib/space'
 
 export async function GET(request: Request, { params }: { params: { userId: string } }) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Не авторизован' }, { status: 401 })
+  }
+
+  if (params.userId !== session.user.id) {
+    const mySpaceIds = await getMySpaceIds(session.user.id)
+    const shared = await prisma.spaceMember.findFirst({
+      where: { userId: params.userId, spaceId: { in: mySpaceIds } },
+    })
+    if (!shared) {
+      return NextResponse.json({ error: 'Не найден' }, { status: 404 })
+    }
   }
 
   const user = await prisma.user.findUnique({

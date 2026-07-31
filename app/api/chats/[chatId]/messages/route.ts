@@ -15,6 +15,13 @@ export async function GET(request: Request, { params }: { params: { chatId: stri
   const cursor = url.searchParams.get('cursor')
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100)
 
+  const member = await prisma.chatMember.findUnique({
+    where: { chatId_userId: { chatId: params.chatId, userId: session.user.id } },
+  })
+  if (!member) {
+    return NextResponse.json({ error: 'Вы не в чате' }, { status: 403 })
+  }
+
   const messages = await prisma.message.findMany({
     where: { chatId: params.chatId },
     take: limit,

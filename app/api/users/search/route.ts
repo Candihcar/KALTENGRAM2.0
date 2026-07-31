@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { resolveActiveSpaceId } from '@/lib/space'
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions)
@@ -18,10 +19,13 @@ export async function GET(request: Request) {
 
   if (query.length < 3) return NextResponse.json([])
 
+  const activeSpaceId = await resolveActiveSpaceId(session.user.id)
+
   const users = await prisma.user.findMany({
     where: {
       id: { not: session.user.id },
       username: { contains: query, mode: 'insensitive' },
+      spaces: { some: { spaceId: activeSpaceId } },
     },
     select: { id: true, username: true, displayName: true, image: true, online: true },
     take: 20,

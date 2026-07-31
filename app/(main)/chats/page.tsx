@@ -26,6 +26,8 @@ export default function ChatsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [showMenu, setShowMenu] = useState(false)
   const [me, setMe] = useState<{ image: string | null } | null>(null)
+  const [spaces, setSpaces] = useState<{ id: string; name: string }[]>([])
+  const [activeSpace, setActiveSpace] = useState('')
 
   useEffect(() => {
     if (session?.user?.id) {
@@ -33,7 +35,23 @@ export default function ChatsPage() {
     }
   }, [session?.user?.id])
 
-  useEffect(() => { fetchChats() }, [])
+  useEffect(() => {
+    let disposed = false
+    fetch('/api/spaces')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (disposed || !d) return
+        setSpaces(d.spaces || [])
+        setActiveSpace(d.active || '')
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!disposed) fetchChats()
+      })
+    return () => {
+      disposed = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!session?.user?.id) return
@@ -116,6 +134,25 @@ export default function ChatsPage() {
       const res = await fetch('/api/chats')
       if (res.ok) setChats(await res.json())
     } catch {} finally { setLoading(false) }
+  }
+
+  async function switchSpace(spaceId: string) {
+    if (spaceId === activeSpace) return
+    try {
+      const res = await fetch('/api/spaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ spaceId }),
+      })
+      if (res.ok) {
+        setActiveSpace(spaceId)
+        setChats([])
+        setLoading(true)
+        setSearch('')
+        setShowSearch(false)
+        fetchChats()
+      }
+    } catch {}
   }
 
   function getChatName(chat: Chat): string {
@@ -221,6 +258,25 @@ export default function ChatsPage() {
               </svg>
             </button>
           </div>
+
+          {/* Space switcher */}
+          {spaces.length > 1 && (
+            <div className="px-4 py-2 border-b border-gray-700/20 flex items-center gap-2 overflow-x-auto">
+              {spaces.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => switchSpace(s.id)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                    activeSpace === s.id
+                      ? 'bg-primary text-white'
+                      : 'bg-bg-hover text-text-secondary hover:text-text'
+                  }`}
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Search users panel */}
           {showSearch && (

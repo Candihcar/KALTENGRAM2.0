@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { resolveActiveSpaceId } from '@/lib/space'
 
 export async function GET() {
   const session = await getServerSession(authOptions)
@@ -9,8 +10,13 @@ export async function GET() {
     return NextResponse.json({ error: 'Не авторизован' }, { status: 401 })
   }
 
+  const activeSpaceId = await resolveActiveSpaceId(session.user.id)
+
   const chats = await prisma.chat.findMany({
-    where: { members: { some: { userId: session.user.id } } },
+    where: {
+      members: { some: { userId: session.user.id } },
+      spaceId: activeSpaceId,
+    },
     include: {
       members: {
         include: {
@@ -42,9 +48,19 @@ export async function POST(request: Request) {
   try {
     const { userId } = await request.json()
 
+    const activeSpaceId = await resolveActiveSpaceId(session.user.id)
+
+    const otherMember = await prisma.spaceMember.findUnique({
+      where: { spaceId_userId: { spaceId: activeSpaceId, userId } },
+    })
+    if (!otherMember) {
+      return NextResponse.json({ error: 'Пользователь недоступен в этом пространстве' }, { status: 403 })
+    }
+
     const existing = await prisma.chat.findFirst({
       where: {
         type: 'DIRECT',
+        spaceId: activeSpaceId,
         AND: [
           { members: { some: { userId: session.user.id } } },
           { members: { some: { userId } } },
@@ -59,6 +75,7 @@ export async function POST(request: Request) {
     const chat = await prisma.chat.create({
       data: {
         type: 'DIRECT',
+        spaceId: activeSpaceId,
         members: {
           create: [
             { userId: session.user.id, role: 'MEMBER' },

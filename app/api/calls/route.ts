@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { triggerPusher } from '@/lib/pusher'
 import { enforceRateLimit } from '@/lib/rate-limit'
+import { resolveActiveSpaceId } from '@/lib/space'
 
 function sanitizeCall(call: any) {
   return {
@@ -25,9 +26,19 @@ export async function POST(request: Request) {
   try {
     const { receiverId } = await request.json()
 
+    const activeSpaceId = await resolveActiveSpaceId(session.user.id)
+
+    const receiverMember = await prisma.spaceMember.findUnique({
+      where: { spaceId_userId: { spaceId: activeSpaceId, userId: receiverId } },
+    })
+    if (!receiverMember) {
+      return NextResponse.json({ error: 'Пользователь недоступен в этом пространстве' }, { status: 403 })
+    }
+
     let chat = await prisma.chat.findFirst({
       where: {
         type: 'DIRECT',
+        spaceId: activeSpaceId,
         AND: [
           { members: { some: { userId: session.user.id } } },
           { members: { some: { userId: receiverId } } },
@@ -39,6 +50,7 @@ export async function POST(request: Request) {
       chat = await prisma.chat.create({
         data: {
           type: 'DIRECT',
+          spaceId: activeSpaceId,
           members: {
             create: [
               { userId: session.user.id, role: 'MEMBER' },

@@ -23,6 +23,7 @@ model User {
   lastSeen     DateTime @default(now())
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  activeSpaceId String?
 
   sentMessages    Message[]
   chatMemberships ChatMember[]
@@ -30,8 +31,34 @@ model User {
   receivedCalls   Call[] @relation("ReceivedCalls")
   verifiedContacts ContactVerification[] @relation("VerifiedContacts")
   verifiedBy      ContactVerification[] @relation("VerifiedBy")
+  spaces          SpaceMember[]
 
   @@map("users")
+}
+
+model Space {
+  id        String   @id
+  name      String
+  ownerId   String?
+  createdAt DateTime @default(now())
+
+  members SpaceMember[]
+  chats   Chat[]
+
+  @@map("spaces")
+}
+
+model SpaceMember {
+  spaceId  String
+  userId   String
+  joinedAt DateTime @default(now())
+
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([spaceId, userId])
+  @@index([userId])
+  @@map("space_members")
 }
 
 model ContactVerification {
@@ -55,12 +82,14 @@ model Chat {
   type      String   @default("DIRECT")
   name      String?
   image     String?
+  spaceId   String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   messages Message[]
   members  ChatMember[]
   calls    Call[]
+  space    Space? @relation(fields: [spaceId], references: [id])
 
   @@map("chats")
 }

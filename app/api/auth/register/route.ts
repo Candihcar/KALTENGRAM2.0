@@ -3,6 +3,7 @@ import { hash } from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
 import { generateUsername } from '@/lib/utils'
 import { enforceRateLimit } from '@/lib/rate-limit'
+import { ensureSpace } from '@/lib/space'
 import { z } from 'zod'
 
 const schema = z.object({
@@ -32,8 +33,17 @@ export async function POST(request: Request) {
 
     const passwordHash = await hash(password, 12)
 
+    await ensureSpace('general', 'Общий')
+
     await prisma.user.create({
-      data: { email, username, displayName, passwordHash },
+      data: {
+        email,
+        username,
+        displayName,
+        passwordHash,
+        activeSpaceId: 'general',
+        spaces: { create: { spaceId: 'general' } },
+      },
     })
 
     return NextResponse.json({ message: 'Регистрация успешна' }, { status: 201 })
