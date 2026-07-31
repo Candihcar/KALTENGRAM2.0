@@ -21,8 +21,13 @@ export async function GET(request: Request, { params }: { params: { chatId: stri
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     orderBy: { createdAt: 'desc' },
     include: {
-      sender: { select: { id: true, username: true, displayName: true, image: true } },
-      replyTo: { include: { sender: { select: { id: true, displayName: true } } } },
+      sender: { select: { id: true, username: true, displayName: true, image: true, e2ePub: true } },
+      replyTo: {
+        include: {
+          sender: { select: { id: true, displayName: true, e2ePub: true } },
+          attachments: { select: { id: true, type: true, url: true, ciphertext: true, nonce: true } },
+        },
+      },
       attachments: true,
     },
   })
@@ -43,7 +48,7 @@ export async function POST(request: Request, { params }: { params: { chatId: str
   if (rateLimited) return rateLimited
 
   try {
-    const { content, type, fileUrl, replyToId, attachments } = await request.json()
+    const { content, ciphertext, nonce, wrappedKeys, type, fileUrl, replyToId, attachments } = await request.json()
 
     const member = await prisma.chatMember.findUnique({
       where: { chatId_userId: { chatId: params.chatId, userId: session.user.id } },
@@ -56,24 +61,39 @@ export async function POST(request: Request, { params }: { params: { chatId: str
       data: {
         chatId: params.chatId,
         senderId: session.user.id,
-        content,
+        content: ciphertext ? null : (content || null),
+        ciphertext: ciphertext || null,
+        nonce: nonce || null,
+        wrappedKeys: wrappedKeys?.length ? wrappedKeys : undefined,
         type: type || 'TEXT',
-        fileUrl: fileUrl || (attachments?.[0] as string) || null,
+        fileUrl: ciphertext ? null : (fileUrl || null),
         replyToId,
         ...(attachments?.length
           ? {
               attachments: {
-                create: (attachments as string[]).map((url: string) => ({
-                  type: 'IMAGE',
-                  url,
-                })),
+                create: (attachments as any[]).map((a) => {
+                  if (typeof a === 'string') {
+                    return { type: 'IMAGE', url: a }
+                  }
+                  return {
+                    type: a.type || 'IMAGE',
+                    url: null,
+                    ciphertext: a.ciphertext || null,
+                    nonce: a.nonce || null,
+                  }
+                }),
               },
             }
           : {}),
       },
       include: {
-        sender: { select: { id: true, username: true, displayName: true, image: true } },
-        replyTo: { include: { sender: { select: { id: true, displayName: true } } } },
+        sender: { select: { id: true, username: true, displayName: true, image: true, e2ePub: true } },
+        replyTo: {
+          include: {
+            sender: { select: { id: true, displayName: true, e2ePub: true } },
+            attachments: { select: { id: true, type: true, url: true, ciphertext: true, nonce: true } },
+          },
+        },
         attachments: true,
       },
     })

@@ -10,6 +10,21 @@ import { compressImage } from '@/lib/image-utils'
 import { getPusherClient } from '@/lib/pusher-client'
 import EmojiPicker from 'emoji-picker-react'
 import { CallButton } from '@/components/Call/CallButton'
+import {
+  e2eDecryptDataUrl,
+  e2eDecryptText,
+  e2eEncryptDataUrl,
+  e2eEncryptText,
+  e2eNewMessageKey,
+  e2eUnwrapMessageKey,
+  e2eWrapMessageKey,
+} from '@/lib/e2e'
+import {
+  getE2EState,
+  getPubKeys,
+  isE2EUnlocked,
+  subscribeE2E,
+} from '@/lib/e2e-store'
 
 interface Member {
   userId: string; role: string
@@ -20,11 +35,37 @@ interface ChatData {
   id: string; type: string; name: string | null; image: string | null; members: Member[]
 }
 
+interface WrappedKey {
+  userId: string; iv: string; key: string
+}
+
+interface Attachment {
+  id: string; url: string | null; type: string; ciphertext: string | null; nonce: string | null
+}
+
 interface Message {
   id: string; content: string | null; type: string; fileUrl: string | null; readAt: string | null; createdAt: string
-  sender: { id: string; displayName: string; image: string | null; username: string }
-  replyTo: { id: string; content: string | null; sender: { displayName: string } } | null
-  attachments: { id: string; url: string; type: string }[]
+  ciphertext: string | null; nonce: string | null; wrappedKeys: WrappedKey[] | null
+  sender: { id: string; displayName: string; image: string | null; username: string; e2ePub: string | null }
+  replyTo: {
+    id: string; content: string | null; ciphertext: string | null; nonce: string | null; wrappedKeys: WrappedKey[] | null
+    sender: { id: string; displayName: string; e2ePub: string | null }
+  } | null
+  attachments: Attachment[]
+}
+
+interface DecodedMessage {
+  text: string | null
+  images: string[]
+}
+
+function fileToDataUrl(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader()
+    fr.onload = () => resolve(fr.result as string)
+    fr.onerror = () => reject(new Error('read-failed'))
+    fr.readAsDataURL(file)
+  })
 }
 
 export default function ChatPage() {
@@ -35,6 +76,9 @@ export default function ChatPage() {
 
   const [chat, setChat] = useState<ChatData | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [decoded, setDecoded] = useState<Record<string, DecodedMessage>>({})
+  const [replyPreviews, setReplyPreviews] = useState<Record<string, string>>({})
+  const [unlocked, setUnlocked] = useState(false)
   const [loading, setLoading] = useState(true)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
@@ -46,24 +90,25 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    setUnlocked(isE2EUnlocked())
+    return subscribeE2E(() => setUnlocked(isE2EUnlocked()))
+  }, [])
+
+  useEffect(() => {
     if (!chatId) return
     setLoading(true)
     fetch(`/api/chats/${chatId}`).then((r) => r.ok ? r.json() : null).then((d) => { setChat(d); setLoading(false) })
-    fetchMessages()
-  }, [chatId])
+    if (unlocked) fetchMessages()
+  }, [chatId, unlocked])
+
+  useEffect(() => {
+    if (!chat || !unlocked) return
+    getPubKeys(chat.members.map((m) => m.userId))
+  }, [chat, unlocked])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
-
-  async function fetchMessages() {
-    const res = await fetch(`/api/chats/${chatId}/messages?limit=50`)
-    if (res.ok) {
-      const data = await res.json()
-      setMessages(data.messages || [])
-      markRead()
-    }
-  }
 
   const otherUserId = getOtherUser()?.id
 
@@ -129,33 +174,106 @@ export default function ChatPage() {
     }
   }, [chatId, session?.user?.id])
 
+  async function fetchMessages() {
+    if (!isE2EUnlocked()) return
+    const res = await fetch(`/api/chats/${chatId}/messages?limit=50`)
+    if (res.ok) {
+      const data = await res.json()
+      const list = data.messages || []
+      setMessages(list)
+      void decryptMessages(list)
+      markRead()
+    }
+  }
+
+  async function decryptMessages(list: Message[]) {
+    const st = getE2EState()
+    if (!st) return
+    const out: Record<string, DecodedMessage> = {}
+    const replies: Record<string, string> = {}
+    for (const m of list) {
+      if (m.ciphertext && m.nonce && m.wrappedKeys?.length && m.sender.e2ePub) {
+        const wk = m.wrappedKeys.find((w) => w.userId === st.userId)
+        if (wk) {
+          try {
+            const mk = await e2eUnwrapMessageKey(wk, m.sender.e2ePub, st.privKey)
+            const text = await e2eDecryptText({ ciphertext: m.ciphertext, nonce: m.nonce }, mk)
+            const images: string[] = []
+            for (const a of m.attachments || []) {
+              if (a.ciphertext && a.nonce) {
+                images.push(await e2eDecryptDataUrl({ ciphertext: a.ciphertext, nonce: a.nonce }, mk))
+              }
+            }
+            out[m.id] = { text, images }
+          } catch {
+            out[m.id] = { text: null, images: [] }
+          }
+        }
+      }
+      const r = m.replyTo
+      if (r && r.ciphertext && r.nonce && r.wrappedKeys?.length && r.sender.e2ePub) {
+        const wk = r.wrappedKeys.find((w) => w.userId === st.userId)
+        if (wk) {
+          try {
+            const mk = await e2eUnwrapMessageKey(wk, r.sender.e2ePub, st.privKey)
+            replies[r.id] = await e2eDecryptText({ ciphertext: r.ciphertext, nonce: r.nonce }, mk)
+          } catch {}
+        }
+      }
+    }
+    setDecoded(out)
+    setReplyPreviews(replies)
+  }
+
   async function sendMessage() {
     const msgContent = text.trim()
     if (!msgContent && previews.length === 0) return
+    const st = getE2EState()
+    if (!st) {
+      toast.error('Переписка заблокирована')
+      return
+    }
     setSending(true)
     try {
-      const attachmentUrls: string[] = []
+      const members = chat?.members || []
+      const pubs = await getPubKeys(members.map((m) => m.userId))
+      const missing = members.find((m) => !pubs.get(m.userId))
+      if (missing) {
+        toast.error('Не удалось отправить: у участника не настроено шифрование')
+        return
+      }
+
+      const mk = await e2eNewMessageKey()
+      let ciphertext: string | null = null
+      let nonce: string | null = null
+      if (msgContent) {
+        const enc = await e2eEncryptText(msgContent, mk)
+        ciphertext = enc.ciphertext
+        nonce = enc.nonce
+      }
+
+      const wrappedKeys: WrappedKey[] = []
+      for (const m of members) {
+        const wrapped = await e2eWrapMessageKey(mk, pubs.get(m.userId)!, st.privKey)
+        wrappedKeys.push({ userId: m.userId, ...wrapped })
+      }
+
+      const encAttachments: { type: string; ciphertext: string; nonce: string }[] = []
       for (const p of previews) {
-        const formData = new FormData()
-        formData.append('file', p.file)
-        const upRes = await fetch('/api/upload', { method: 'POST', body: formData })
-        if (!upRes.ok) {
-          const d = await upRes.json()
-          toast.error(d.error || 'Ошибка загрузки')
-          setSending(false)
-          return
-        }
-        const data = await upRes.json()
-        attachmentUrls.push(data.url)
+        const dataUrl = await fileToDataUrl(p.file)
+        const enc = await e2eEncryptDataUrl(dataUrl, mk)
+        encAttachments.push({ type: 'IMAGE', ciphertext: enc.ciphertext, nonce: enc.nonce })
       }
 
       const res = await fetch(`/api/chats/${chatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          content: msgContent || null,
-          type: attachmentUrls.length ? 'IMAGE' : 'TEXT',
-          attachments: attachmentUrls,
+          ciphertext,
+          nonce,
+          wrappedKeys: wrappedKeys.length ? wrappedKeys : undefined,
+          type: encAttachments.length ? 'IMAGE' : 'TEXT',
+          attachments: encAttachments,
         }),
       })
       if (res.ok) {
@@ -302,6 +420,16 @@ export default function ChatPage() {
             ) : (
               messages.map((msg) => {
                 const isOwn = msg.sender.id === session?.user?.id
+                const dec = decoded[msg.id]
+                const isLegacy = !msg.ciphertext
+                const hadAttachments = (msg.attachments && msg.attachments.length > 0) || !!msg.fileUrl
+                const images = dec?.images || []
+                const replyText =
+                  msg.replyTo && !msg.replyTo.content
+                    ? replyPreviews[msg.replyTo.id]
+                      ? replyPreviews[msg.replyTo.id]
+                      : '🔒 Зашифрованное сообщение'
+                    : msg.replyTo?.content || null
 
                 return (
                   <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-1 message-animate`}>
@@ -319,46 +447,47 @@ export default function ChatPage() {
                           isOwn ? 'bg-blue-900/20 border-primary' : 'bg-gray-700/20 border-text-secondary'
                         }`}>
                           <span className="text-primary font-medium">{msg.replyTo.sender.displayName}</span>
-                          <p className="truncate text-text-secondary">{msg.replyTo.content}</p>
+                          <p className="truncate text-text-secondary">{replyText}</p>
                         </div>
                       )}
 
-                      {(() => {
-                        const attachments = msg.attachments?.length
-                          ? msg.attachments
-                          : msg.fileUrl
-                            ? [{ id: msg.fileUrl, url: msg.fileUrl, type: 'IMAGE' }]
-                            : []
-                        if (!attachments.length) return null
-                        return (
-                          <div className={`mb-1.5 -mx-1 ${attachments.length > 1 ? 'grid grid-cols-2 gap-1' : ''}`}>
-                            {attachments.map((att) => (
-                              <button
-                                key={att.id}
-                                type="button"
-                                onClick={() => setLightbox(att.url)}
-                                className="block w-full p-0 border-0 bg-transparent cursor-zoom-in text-left"
-                              >
-                                <img
-                                  src={att.url}
-                                  alt=""
-                                  className="max-w-full rounded-xl max-h-72 object-cover hover:opacity-95 transition-opacity w-full"
-                                  loading="lazy"
-                                />
-                              </button>
-                            ))}
-                          </div>
-                        )
-                      })()}
-
-                      {msg.type === 'VIDEO' && msg.fileUrl && (
-                        <div className="mb-1.5 -mx-1">
-                          <video src={msg.fileUrl} controls className="max-w-full rounded-xl max-h-72" preload="metadata" />
+                      {isLegacy ? (
+                        <div className="flex items-center gap-2 py-1">
+                          <svg className="w-4 h-4 text-text-muted flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                          <p className="text-sm text-text-muted italic">Сообщение недоступно (отправлено до включения E2E)</p>
                         </div>
-                      )}
-
-                      {msg.content && (
-                        <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
+                      ) : !dec ? (
+                        <p className="text-sm text-text-muted italic py-1">Не удалось расшифровать сообщение</p>
+                      ) : (
+                        <>
+                          {images.length > 0 && (
+                            <div className={`mb-1.5 -mx-1 ${images.length > 1 ? 'grid grid-cols-2 gap-1' : ''}`}>
+                              {images.map((url, i) => (
+                                <button
+                                  key={`${msg.id}-img-${i}`}
+                                  type="button"
+                                  onClick={() => setLightbox(url)}
+                                  className="block w-full p-0 border-0 bg-transparent cursor-zoom-in text-left"
+                                >
+                                  <img
+                                    src={url}
+                                    alt=""
+                                    className="max-w-full rounded-xl max-h-72 object-cover hover:opacity-95 transition-opacity w-full"
+                                    loading="lazy"
+                                  />
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {hadAttachments && images.length === 0 && (
+                            <p className="text-sm text-text-muted italic mb-1.5">🔒 Вложение не расшифровано</p>
+                          )}
+                          {dec.text && (
+                            <p className="text-sm whitespace-pre-wrap break-words">{dec.text}</p>
+                          )}
+                        </>
                       )}
 
                       <div className="flex items-center justify-end gap-1 mt-1">

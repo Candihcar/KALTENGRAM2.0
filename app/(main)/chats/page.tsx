@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { formatDate, getInitials } from '@/lib/utils'
 import { getPusherClient } from '@/lib/pusher-client'
 import { CallButton } from '@/components/Call/CallButton'
+import { clearE2E } from '@/lib/e2e-store'
 
 interface Chat {
   id: string; type: string; name: string | null; image: string | null; updatedAt: string
@@ -140,8 +141,9 @@ export default function ChatsPage() {
   function getLastMessage(chat: Chat): string {
     if (!chat.messages?.[0]) return 'Нет сообщений'
     const m = chat.messages[0]
+    if (!m.content) return '🔒 Зашифрованное сообщение'
     const prefix = m.type !== 'TEXT' ? (m.type === 'IMAGE' ? '📷 ' : m.type === 'VIDEO' ? '🎬 ' : '📎 ') : ''
-    return prefix + (m.content || '')
+    return prefix + m.content
   }
 
   const filteredChats = chats.filter((c) =>
@@ -204,7 +206,7 @@ export default function ChatsPage() {
                     <Link href="/settings" className="block px-4 py-2.5 text-sm hover:bg-bg-hover transition-colors" onClick={() => setShowMenu(false)}>
                       ⚙️ Настройки
                     </Link>
-                    <button onClick={() => { setShowMenu(false); signOut({ callbackUrl: '/login' }) }}
+                    <button onClick={() => { setShowMenu(false); clearE2E(); signOut({ callbackUrl: '/login' }) }}
                       className="w-full text-left px-4 py-2.5 text-sm text-danger hover:bg-bg-hover transition-colors">
                       🚪 Выйти
                     </button>
