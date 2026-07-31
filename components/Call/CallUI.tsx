@@ -32,6 +32,7 @@ export function CallUI({
   const [isVideoOff, setIsVideoOff] = useState(false)
   const [duration, setDuration] = useState(0)
   const [connected, setConnected] = useState(false)
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -184,9 +185,7 @@ export function CallUI({
         }
 
         peer.ontrack = (e) => {
-          if (remoteVideoRef.current && e.streams[0]) {
-            remoteVideoRef.current.srcObject = e.streams[0]
-          }
+          if (e.streams[0]) setRemoteStream(e.streams[0])
         }
 
         peer.onconnectionstatechange = () => {
@@ -233,6 +232,12 @@ export function CallUI({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [call.id])
 
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream
+    }
+  }, [remoteStream])
+
   async function hangUp() {
     endedRef.current = true
     try {
@@ -278,16 +283,14 @@ export function CallUI({
   return (
     <div className="fixed inset-0 z-50 bg-gray-950 flex flex-col">
       <div className="flex-1 relative flex items-center justify-center overflow-hidden">
-        {connected && (
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            className={`absolute inset-0 w-full h-full object-cover transition-opacity ${
-              isVideoOff ? 'opacity-0' : 'opacity-100'
-            }`}
-          />
-        )}
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity ${
+            connected ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
 
         <div className={`relative text-center ${connected ? '' : 'z-10'}`}>
           {otherUser.image ? (
