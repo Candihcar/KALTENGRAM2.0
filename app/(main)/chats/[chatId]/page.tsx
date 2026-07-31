@@ -242,7 +242,7 @@ export default function ChatPage() {
   const chatImage = getChatImage()
 
   return (
-    <div className="flex h-screen bg-bg-chat">
+    <div className="flex h-dvh bg-bg-chat overscroll-x-none">
         {/* Messages area */}
         <div className="flex-1 flex flex-col">
           {/* Chat header */}
@@ -387,7 +387,7 @@ export default function ChatPage() {
           </div>
 
           {/* Input */}
-          <div className="px-5 py-3 bg-bg border-t border-gray-700/20">
+          <div className="px-5 pt-3 pb-[calc(env(safe-area-inset-bottom)+12px)] bg-bg border-t border-gray-700/20">
             {previews.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2">
                 {previews.map((p) => (

@@ -180,9 +180,9 @@ export default function ChatsPage() {
   const [selectedUsers, setSelectedUsers] = useState<any[]>([])
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-dvh overscroll-x-none">
         {/* Sidebar */}
-        <div className="w-96 bg-bg flex flex-col h-full border-r border-gray-700/20 flex-shrink-0">
+        <div className="w-full lg:w-96 bg-bg flex flex-col h-full border-r border-gray-700/20 flex-shrink-0">
           {/* Header */}
           <div className="px-5 py-4 flex items-center justify-between border-b border-gray-700/20">
             <div className="relative">
@@ -366,7 +366,7 @@ export default function ChatsPage() {
         </div>
 
         {/* Main content */}
-        <div className="flex-1 flex flex-col bg-bg-chat">
+        <div className="hidden lg:flex flex-col flex-1 bg-bg-chat">
           {chats.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-text-secondary">
               <div className="text-center">
