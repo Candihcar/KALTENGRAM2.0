@@ -46,9 +46,13 @@ export function CallUI({
     endedRef.current = false
 
     async function sendSignal(data: SignalData) {
-      const pusher = await getPusherClient()
-      if (!pusher) return
-      await pusher.trigger(`call-${call.id}`, 'call-signal', data)
+      try {
+        await fetch('/api/calls/signal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ callId: call.id, data }),
+        })
+      } catch {}
     }
 
     async function updateStatus(status: string) {
