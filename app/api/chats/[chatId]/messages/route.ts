@@ -80,7 +80,7 @@ export async function POST(request: Request, { params }: { params: { chatId: str
     })
 
     try {
-      await triggerPusher(`chat-${params.chatId}`, 'new-message', message)
+      await triggerPusher(`chat-${params.chatId}`, 'new-message', { id: message.id })
 
       const members = await prisma.chatMember.findMany({
         where: { chatId: params.chatId },

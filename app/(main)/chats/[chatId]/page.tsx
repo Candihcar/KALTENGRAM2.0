@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -41,6 +41,7 @@ export default function ChatPage() {
   const [showEmoji, setShowEmoji] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
   const [previews, setPreviews] = useState<{ id: string; url: string; file: File }[]>([])
+  const [lightbox, setLightbox] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -63,10 +64,6 @@ export default function ChatPage() {
       markRead()
     }
   }
-
-  const appendMessage = useCallback((msg: Message) => {
-    setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]))
-  }, [])
 
   const otherUserId = getOtherUser()?.id
 
@@ -110,9 +107,8 @@ export default function ChatPage() {
       if (disposed || !pusher) return
       const channel = pusher.subscribe(`chat-${chatId}`)
       chatChannel.current = channel
-      channel.bind('new-message', (msg: Message) => {
-        if (msg.sender.id !== session?.user?.id) markRead()
-        appendMessage(msg)
+      channel.bind('new-message', () => {
+        fetchMessages()
       })
       channel.bind(
         'messages-read',
@@ -131,7 +127,7 @@ export default function ChatPage() {
         chatChannel.current = null
       }
     }
-  }, [chatId, session?.user?.id, appendMessage])
+  }, [chatId, session?.user?.id])
 
   async function sendMessage() {
     const msgContent = text.trim()
@@ -337,14 +333,19 @@ export default function ChatPage() {
                         return (
                           <div className={`mb-1.5 -mx-1 ${attachments.length > 1 ? 'grid grid-cols-2 gap-1' : ''}`}>
                             {attachments.map((att) => (
-                              <a key={att.id} href={att.url} target="_blank" rel="noopener noreferrer">
+                              <button
+                                key={att.id}
+                                type="button"
+                                onClick={() => setLightbox(att.url)}
+                                className="block w-full p-0 border-0 bg-transparent cursor-zoom-in text-left"
+                              >
                                 <img
                                   src={att.url}
                                   alt=""
-                                  className="max-w-full rounded-xl max-h-72 object-cover cursor-pointer hover:opacity-95 transition-opacity w-full"
+                                  className="max-w-full rounded-xl max-h-72 object-cover hover:opacity-95 transition-opacity w-full"
                                   loading="lazy"
                                 />
-                              </a>
+                              </button>
                             ))}
                           </div>
                         )
@@ -517,6 +518,28 @@ export default function ChatPage() {
             )}
           </div>
         )}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <img
+            src={lightbox}
+            alt=""
+            className="max-w-full max-h-full object-contain rounded-xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white text-xl flex items-center justify-center"
+            aria-label="Закрыть"
+          >
+            <title>Закрыть</title>
+            ×
+          </button>
+        </div>
+      )}
     </div>
   )
 }
