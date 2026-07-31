@@ -16,6 +16,8 @@ export async function GET(request: Request) {
 
   const query = raw.trim().replace(/^@/, '')
 
+  if (query.length < 3) return NextResponse.json([])
+
   const users = await prisma.user.findMany({
     where: {
       id: { not: session.user.id },

@@ -101,7 +101,8 @@ export default function ChatsPage() {
   }, [presenceKey])
 
   useEffect(() => {
-    if (!searchQuery.trim()) { setUsers([]); return }
+    const q = searchQuery.trim().replace(/^@/, '')
+    if (q.length < 3) { setUsers([]); return }
     const timer = setTimeout(async () => {
       const res = await fetch(`/api/users/search?q=${encodeURIComponent(searchQuery)}`)
       if (res.ok) setUsers(await res.json())
@@ -271,7 +272,10 @@ export default function ChatsPage() {
                     {user.online && <div className="w-2.5 h-2.5 bg-success rounded-full" />}
                   </button>
                 ))}
-                {searchQuery && users.length === 0 && (
+                {searchQuery.trim() && searchQuery.trim().replace(/^@/, '').length < 3 && (
+                  <p className="text-sm text-text-muted py-3 text-center">Введите минимум 3 символа</p>
+                )}
+                {searchQuery.trim().replace(/^@/, '').length >= 3 && users.length === 0 && (
                   <p className="text-sm text-text-muted py-3 text-center">Ничего не найдено</p>
                 )}
               </div>
