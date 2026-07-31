@@ -431,8 +431,20 @@ export default function ChatPage() {
                   </svg>
                 </button>
                 {showEmoji && (
-                  <div className="absolute bottom-full right-0 mb-2 z-50">
-                    <EmojiPicker onEmojiClick={(emoji) => { setText((prev) => prev + emoji.emoji); setShowEmoji(false) }} width={320} height={400} />
+                  <div
+                    className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center sm:justify-center animate-fade-in"
+                    onClick={() => setShowEmoji(false)}
+                  >
+                    <div
+                      className="w-full sm:w-auto overflow-hidden rounded-t-2xl sm:rounded-2xl shadow-2xl animate-slide-up"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <EmojiPicker
+                        onEmojiClick={(emoji) => { setText((prev) => prev + emoji.emoji); setShowEmoji(false) }}
+                        width={typeof window !== 'undefined' ? Math.min(320, window.innerWidth) : 320}
+                        height={400}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
