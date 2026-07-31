@@ -3,7 +3,18 @@
 import { useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { getPusherClient } from '@/lib/pusher-client'
+import { e2eBuf, e2eImportPublic } from '@/lib/e2e'
+import { getE2EState, getPubKeys } from '@/lib/e2e-store'
 import type { CallData } from './CallProvider'
+
+const EMOJI = [
+  '🐶','🐱','🦊','🐼','🐨','🐯','🦁','🐸','🐵','🐷','🦄','🐬',
+  '🐙','🦋','🐞','🐝','🦉','🦅','🦜','🐢','🐊','🦈','🐳','🦑',
+  '🍎','🍋','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥥','🌽','🥕',
+  '🌻','🌹','🌵','🎄','🍁','🍄','⭐','🌙','☀️','🌈','⚡','🔥',
+  '💎','⚽','🏀','🎱','🎮','🎲','🎸','🎹','🚀','✈️','🚗','🏎️',
+  '🍕','🍔','🍟','🌮','🍩','🍪','🧁','🍦',
+]
 
 interface SignalData {
   from: string
@@ -19,6 +30,14 @@ const rtcConfig: RTCConfiguration = {
 }
 
 const CORNER_MARGIN = 12
+
+function collectFingerprints(sdp: string): string[] {
+  const fps: string[] = []
+  const re = /a=fingerprint:[^ ]+ ([0-9A-Fa-f:]+)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(sdp))) fps.push(m[1].toLowerCase())
+  return fps.sort()
+}
 
 export function CallUI({
   call,
@@ -41,6 +60,9 @@ export function CallUI({
   const [previewPos, setPreviewPos] = useState({ x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
   const [uiCollapsed, setUiCollapsed] = useState(false)
+  const [verification, setVerification] = useState<'ok' | 'unavailable' | null>(null)
+  const [phrase, setPhrase] = useState<string[]>([])
+  const [showPhrase, setShowPhrase] = useState(false)
   const [isTouchDevice] = useState(
     () => typeof window !== 'undefined' && (navigator.maxTouchPoints > 0 || 'ontouchstart' in window)
   )
@@ -260,6 +282,51 @@ export function CallUI({
     const t = setTimeout(() => setUiCollapsed(true), 3000)
     return () => clearTimeout(t)
   }, [connected])
+
+  useEffect(() => {
+    if (!connected) return
+    let cancelled = false
+    async function compute() {
+      const st = getE2EState()
+      const peer = peerRef.current
+      if (!st || !peer || !peer.localDescription?.sdp || !peer.remoteDescription?.sdp) {
+        if (!cancelled) setVerification('unavailable')
+        return
+      }
+      const localSdp = peer.localDescription.sdp
+      const remoteSdp = peer.remoteDescription.sdp
+      const pubs = await getPubKeys([otherUser.id])
+      const peerPub = pubs.get(otherUser.id)
+      if (!peerPub) {
+        if (!cancelled) setVerification('unavailable')
+        return
+      }
+      try {
+        const peerKey = await e2eImportPublic(peerPub)
+        const bits = await crypto.subtle.deriveBits({ name: 'ECDH', public: peerKey }, st.privKey, 256)
+        const localFps = collectFingerprints(localSdp)
+        const remoteFps = collectFingerprints(remoteSdp)
+        const session = [...localFps, ...remoteFps].sort().join('|')
+        const enc = new TextEncoder()
+        const sessionBytes = enc.encode(`${session}|${call.id}`)
+        const input = new Uint8Array(bits.byteLength + sessionBytes.length)
+        input.set(new Uint8Array(bits), 0)
+        input.set(sessionBytes, bits.byteLength)
+        const digest = await crypto.subtle.digest('SHA-256', e2eBuf(input))
+        const arr = new Uint8Array(digest)
+        const words = [0, 1, 2, 3].map((i) => EMOJI[arr[i * 2] % EMOJI.length])
+        if (cancelled) return
+        setPhrase(words)
+        setVerification('ok')
+      } catch {
+        if (!cancelled) setVerification('unavailable')
+      }
+    }
+    compute()
+    return () => {
+      cancelled = true
+    }
+  }, [connected, otherUser.id, call.id])
 
   useEffect(
     () => () => {
@@ -514,6 +581,38 @@ export function CallUI({
                 'Подключение...'
               )}
             </p>
+            {connected && (
+              <div className="mt-2 flex flex-col items-center gap-1">
+                <div className="flex items-center gap-1.5 text-emerald-400 text-[11px]">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  <span>Звонок зашифрован</span>
+                </div>
+                {verification === 'ok' && (
+                  <button
+                    type="button"
+                    onClick={() => setShowPhrase((v) => !v)}
+                    className="text-[11px] text-emerald-300/80 hover:text-emerald-200 underline decoration-dotted"
+                  >
+                    {showPhrase ? 'Скрыть код проверки' : 'Проверить собеседника'}
+                  </button>
+                )}
+                {verification === 'ok' && showPhrase && (
+                  <div className="flex flex-col items-center gap-0.5">
+                    <div className="text-xl sm:text-2xl tracking-[0.15em]">{phrase.join(' ')}</div>
+                    <span className="text-[10px] text-emerald-300/60">
+                      Код новый в каждом звонке. Сравните с собеседником — если совпал, линия защищена от подмены
+                    </span>
+                  </div>
+                )}
+                {verification === 'unavailable' && (
+                  <span className="text-[11px] text-amber-400/80">
+                    Собеседник не настроил E2E — подлинность не проверена
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
