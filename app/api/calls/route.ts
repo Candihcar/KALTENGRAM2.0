@@ -4,6 +4,14 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { triggerPusher } from '@/lib/pusher'
 
+function sanitizeCall(call: any) {
+  return {
+    ...call,
+    caller: call.caller ? { ...call.caller, image: null } : null,
+    receiver: call.receiver ? { ...call.receiver, image: null } : null,
+  }
+}
+
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) {
@@ -50,7 +58,7 @@ export async function POST(request: Request) {
       },
     })
 
-    await triggerPusher(`user-${receiverId}`, 'incoming-call', call)
+    await triggerPusher(`user-${receiverId}`, 'incoming-call', sanitizeCall(call))
 
     return NextResponse.json(call, { status: 201 })
   } catch {
@@ -93,7 +101,7 @@ export async function PATCH(request: Request) {
       },
     })
 
-    await triggerPusher(`call-${callId}`, 'call-updated', { call })
+    await triggerPusher(`call-${callId}`, 'call-updated', { call: sanitizeCall(call) })
 
     if (status === 'ENDED' && existing.status === 'RINGING') {
       await triggerPusher(`user-${existing.receiverId}`, 'call-cancelled', { callId })
