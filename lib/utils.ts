@@ -18,3 +18,15 @@ export function generateUsername(email: string): string {
 export function getInitials(name: string): string {
   return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
 }
+
+export function formatLastSeen(date: Date | string) {
+  const d = new Date(date)
+  const now = new Date()
+  const diff = now.getTime() - d.getTime()
+  if (diff < 60_000) return 'был(а) только что'
+  const mins = Math.floor(diff / 60_000)
+  if (mins < 60) return `был(а) ${mins} мин назад`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `был(а) ${hours} ч назад`
+  return `был(а) ${formatDate(d)}`
+}

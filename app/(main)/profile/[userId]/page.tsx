@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
-import { getInitials, formatDate } from '@/lib/utils'
+import { getInitials, formatDate, formatLastSeen } from '@/lib/utils'
+import { getPusherClient } from '@/lib/pusher-client'
 
 interface UserProfile {
   id: string; username: string; displayName: string; image: string | null; bio: string | null
@@ -17,6 +18,28 @@ export default function ProfilePage({ params }: { params: { userId: string } }) 
 
   useEffect(() => {
     fetch(`/api/users/${params.userId}`).then((r) => r.ok ? r.json() : null).then((d) => { setUser(d); setLoading(false) }).catch(() => setLoading(false))
+  }, [params.userId])
+
+  useEffect(() => {
+    if (!params.userId) return
+    let disposed = false
+    let channel: any = null
+
+    getPusherClient().then((pusher) => {
+      if (disposed || !pusher) return
+      channel = pusher.subscribe(`presence-${params.userId}`)
+      channel.bind(
+        'presence-updated',
+        ({ online, lastSeen }: { online: boolean; lastSeen: string }) => {
+          setUser((prev) => (prev ? { ...prev, online, lastSeen } : prev))
+        }
+      )
+    })
+
+    return () => {
+      disposed = true
+      if (channel) channel.unbind_all()
+    }
   }, [params.userId])
 
   if (loading) {
@@ -67,7 +90,7 @@ export default function ProfilePage({ params }: { params: { userId: string } }) 
           <div className="mt-5 flex items-center justify-center gap-2">
             <div className={`w-2.5 h-2.5 rounded-full ${user.online ? 'bg-success' : 'bg-text-muted'}`} />
             <span className={`text-sm ${user.online ? 'text-success' : 'text-text-muted'}`}>
-              {user.online ? 'В сети' : 'Был(а) недавно'}
+              {user.online ? 'В сети' : formatLastSeen(user.lastSeen)}
             </span>
           </div>
 

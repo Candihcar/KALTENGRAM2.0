@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
+const MAX_SIZE = 4 * 1024 * 1024
+
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) {
@@ -16,22 +18,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Файл не найден' }, { status: 400 })
     }
 
-    if (file.size > 50 * 1024 * 1024) {
-      return NextResponse.json({ error: 'Файл слишком большой (макс 50MB)' }, { status: 400 })
+    if (!file.type.startsWith('image/')) {
+      return NextResponse.json({ error: 'Поддерживаются только изображения' }, { status: 400 })
     }
 
-    const { put } = await import('@vercel/blob')
-    const ext = file.name.split('.').pop()
-    const filename = `uploads/${session.user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+    if (file.size > MAX_SIZE) {
+      return NextResponse.json({ error: 'Файл слишком большой (макс 4MB)' }, { status: 400 })
+    }
 
-    const blob = await put(filename, file, { access: 'public', addRandomSuffix: false })
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const dataUrl = `data:${file.type};base64,${buffer.toString('base64')}`
 
-    const isVideo = file.type.startsWith('video/')
-
-    return NextResponse.json({
-      url: blob.url,
-      type: isVideo ? 'VIDEO' : 'IMAGE',
-    })
+    return NextResponse.json({ url: dataUrl, type: 'IMAGE' })
   } catch {
     return NextResponse.json({ error: 'Ошибка загрузки' }, { status: 500 })
   }

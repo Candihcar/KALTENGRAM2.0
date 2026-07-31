@@ -5,7 +5,8 @@ import { useSession } from 'next-auth/react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
-import { formatDate, getInitials } from '@/lib/utils'
+import { formatDate, formatLastSeen, getInitials } from '@/lib/utils'
+import { compressImage } from '@/lib/image-utils'
 import { getPusherClient } from '@/lib/pusher-client'
 import EmojiPicker from 'emoji-picker-react'
 import { CallButton } from '@/components/Call/CallButton'
@@ -64,6 +65,39 @@ export default function ChatPage() {
     setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]))
   }, [])
 
+  const otherUserId = getOtherUser()?.id
+
+  useEffect(() => {
+    if (!otherUserId) return
+    let disposed = false
+    let channel: any = null
+
+    getPusherClient().then((pusher) => {
+      if (disposed || !pusher) return
+      channel = pusher.subscribe(`presence-${otherUserId}`)
+      channel.bind(
+        'presence-updated',
+        ({ id, online, lastSeen }: { id: string; online: boolean; lastSeen: string }) => {
+          setChat((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  members: prev.members.map((m) =>
+                    m.user.id === id ? { ...m, user: { ...m.user, online, lastSeen } } : m
+                  ),
+                }
+              : prev
+          )
+        }
+      )
+    })
+
+    return () => {
+      disposed = true
+      if (channel) channel.unbind_all()
+    }
+  }, [otherUserId])
+
   useEffect(() => {
     if (!chatId || !session?.user?.id) return
     let disposed = false
@@ -109,8 +143,18 @@ export default function ChatPage() {
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    if (!file.type.startsWith('image/')) {
+      toast.error('Поддерживаются только изображения')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
     const formData = new FormData()
-    formData.append('file', file)
+    try {
+      const compressed = await compressImage(file, 1280, 0.8)
+      formData.append('file', compressed)
+    } catch {
+      formData.append('file', file)
+    }
     try {
       const res = await fetch('/api/upload', { method: 'POST', body: formData })
       if (res.ok) {
@@ -194,7 +238,7 @@ export default function ChatPage() {
                 <div className="min-w-0">
                   <h2 className="font-medium text-sm truncate">{chatName}</h2>
                   <p className={`text-xs ${isOtherOnline() ? 'text-success' : 'text-text-muted'}`}>
-                    {isOtherOnline() ? 'В сети' : chat.type === 'GROUP' ? `${chat.members.length} участников` : 'Не в сети'}
+                    {isOtherOnline() ? 'В сети' : chat.type === 'GROUP' ? `${chat.members.length} участников` : formatLastSeen(otherUser.lastSeen)}
                   </p>
                 </div>
               </button>
@@ -294,7 +338,7 @@ export default function ChatPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                 </svg>
               </button>
-              <input ref={fileInputRef} type="file" accept="image/*,video/*" onChange={handleFileUpload} className="hidden" />
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
 
               <div className="flex-1 relative">
                 <input
@@ -387,7 +431,7 @@ export default function ChatPage() {
                 <div className="mt-4 flex items-center justify-center gap-2">
                   <div className={`w-2 h-2 rounded-full ${otherUser.online ? 'bg-success' : 'bg-text-muted'}`} />
                   <span className={`text-sm ${otherUser.online ? 'text-success' : 'text-text-muted'}`}>
-                    {otherUser.online ? 'В сети' : 'Был(а) недавно'}
+                    {otherUser.online ? 'В сети' : formatLastSeen(otherUser.lastSeen)}
                   </span>
                 </div>
                 <div className="mt-4 flex items-center justify-center gap-3">

@@ -52,6 +52,47 @@ export default function ChatsPage() {
 
   useEffect(() => { if (!showSearch) { setSearchQuery(''); setUsers([]) } }, [showSearch])
 
+  const presenceIds = Array.from(
+    new Set(
+      chats
+        .flatMap((c) => c.members.map((m) => m.user.id))
+        .filter((id) => id !== session?.user?.id)
+    )
+  ).sort()
+  const presenceKey = presenceIds.join(',')
+
+  useEffect(() => {
+    if (!presenceKey) return
+    let disposed = false
+    const channels: any[] = []
+
+    getPusherClient().then((pusher) => {
+      if (disposed || !pusher) return
+      presenceIds.forEach((id) => {
+        const ch = pusher.subscribe(`presence-${id}`)
+        ch.bind(
+          'presence-updated',
+          ({ id: uid, online, lastSeen }: { id: string; online: boolean; lastSeen: string }) => {
+            setChats((prev) =>
+              prev.map((chat) => ({
+                ...chat,
+                members: chat.members.map((m) =>
+                  m.user.id === uid ? { ...m, user: { ...m.user, online, lastSeen } } : m
+                ),
+              }))
+            )
+          }
+        )
+        channels.push(ch)
+      })
+    })
+
+    return () => {
+      disposed = true
+      channels.forEach((ch) => ch.unbind_all())
+    }
+  }, [presenceKey])
+
   useEffect(() => {
     if (!searchQuery.trim()) { setUsers([]); return }
     const timer = setTimeout(async () => {

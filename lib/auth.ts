@@ -22,12 +22,30 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
-      if (user) token.id = user.id
+    async jwt({ token, user, trigger }) {
+      if (user) {
+        token.id = user.id
+        token.name = user.name
+        token.email = user.email
+        token.picture = user.image
+      }
+      if (trigger === 'update' && token.id) {
+        const dbUser = await prisma.user.findUnique({ where: { id: token.id } })
+        if (dbUser) {
+          token.name = dbUser.displayName
+          token.email = dbUser.email
+          token.picture = dbUser.image
+        }
+      }
       return token
     },
     async session({ session, token }) {
-      if (session.user) session.user.id = token.id as string
+      if (session.user) {
+        session.user.id = token.id as string
+        session.user.name = (token.name as string) || null
+        session.user.email = (token.email as string) || null
+        session.user.image = (token.picture as string) || null
+      }
       return session
     },
   },

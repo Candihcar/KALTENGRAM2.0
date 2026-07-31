@@ -38,6 +38,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const [activeCall, setActiveCall] = useState<CallData | null>(null)
   const [incomingCall, setIncomingCall] = useState<CallData | null>(null)
   const channelRef = useRef<any>(null)
+  const activeCallRef = useRef<CallData | null>(null)
+  activeCallRef.current = activeCall
   const userId = session?.user?.id
 
   useEffect(() => {
@@ -62,6 +64,34 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         channelRef.current.unbind_all()
         channelRef.current = null
       }
+    }
+  }, [userId])
+
+  useEffect(() => {
+    if (!userId) return
+    let disposed = false
+
+    async function checkIncoming() {
+      if (activeCallRef.current) return
+      try {
+        const res = await fetch('/api/calls/active')
+        if (!res.ok) return
+        const { call } = await res.json()
+        if (disposed) return
+        if (!call || call.status !== 'RINGING') {
+          setIncomingCall(null)
+          return
+        }
+        setIncomingCall((cur) => (cur ? cur : call))
+      } catch {}
+    }
+
+    const interval = setInterval(checkIncoming, 5000)
+    checkIncoming()
+
+    return () => {
+      disposed = true
+      clearInterval(interval)
     }
   }, [userId])
 
