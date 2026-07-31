@@ -13,13 +13,25 @@ export async function POST(request: Request) {
   try {
     const { online } = await request.json()
 
-    await prisma.user.updateMany({
-      where: {
-        online: true,
-        lastSeen: { lt: new Date(Date.now() - 90_000) },
-      },
-      data: { online: false },
+    const stale = await prisma.user.findMany({
+      where: { online: true, lastSeen: { lt: new Date(Date.now() - 90_000) } },
+      select: { id: true, lastSeen: true },
     })
+    if (stale.length) {
+      await prisma.user.updateMany({
+        where: { id: { in: stale.map((s) => s.id) } },
+        data: { online: false },
+      })
+      await Promise.all(
+        stale.map((s) =>
+          triggerPusher(`presence-${s.id}`, 'presence-updated', {
+            id: s.id,
+            online: false,
+            lastSeen: s.lastSeen.toISOString(),
+          })
+        )
+      )
+    }
 
     const user = await prisma.user.update({
       where: { id: session.user.id },

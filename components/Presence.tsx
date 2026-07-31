@@ -23,7 +23,9 @@ export function Presence() {
 
     send(true)
 
-    const interval = setInterval(() => send(true), 25_000)
+    const interval = setInterval(() => {
+      if (document.visibilityState !== 'hidden') send(true)
+    }, 25_000)
 
     function goOffline() {
       send(false)
