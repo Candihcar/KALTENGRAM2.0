@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { triggerPusher } from '@/lib/pusher'
 
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions)
@@ -49,6 +50,8 @@ export async function POST(request: Request) {
       },
     })
 
+    await triggerPusher(`user-${receiverId}`, 'incoming-call', call)
+
     return NextResponse.json(call, { status: 201 })
   } catch {
     return NextResponse.json({ error: 'Ошибка звонка' }, { status: 500 })
@@ -64,18 +67,37 @@ export async function PATCH(request: Request) {
   try {
     const { callId, status } = await request.json()
 
+    const existing = await prisma.call.findUnique({
+      where: { id: callId },
+      include: {
+        caller: { select: { id: true, displayName: true, image: true } },
+        receiver: { select: { id: true, displayName: true, image: true } },
+      },
+    })
+    if (!existing) {
+      return NextResponse.json({ error: 'Звонок не найден' }, { status: 404 })
+    }
+
     const call = await prisma.call.update({
       where: { id: callId },
       data: {
         status,
         ...(status === 'ONGOING' ? { startedAt: new Date() } : {}),
-        ...(status === 'ENDED' || status === 'MISSED' ? { endedAt: new Date() } : {}),
+        ...(status === 'ENDED' || status === 'DECLINED' || status === 'MISSED'
+          ? { endedAt: new Date() }
+          : {}),
       },
       include: {
         caller: { select: { id: true, displayName: true, image: true } },
         receiver: { select: { id: true, displayName: true, image: true } },
       },
     })
+
+    await triggerPusher(`call-${callId}`, 'call-updated', { call })
+
+    if (status === 'ENDED' && existing.status === 'RINGING') {
+      await triggerPusher(`user-${existing.receiverId}`, 'call-cancelled', { callId })
+    }
 
     return NextResponse.json(call)
   } catch {

@@ -1,14 +1,14 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 import { formatDate, getInitials } from '@/lib/utils'
+import { getPusherClient } from '@/lib/pusher-client'
 import EmojiPicker from 'emoji-picker-react'
 import { CallButton } from '@/components/Call/CallButton'
-import { CallUI } from '@/components/Call/CallUI'
 
 interface Member {
   userId: string; role: string
@@ -38,7 +38,6 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false)
   const [showEmoji, setShowEmoji] = useState(false)
   const [showInfo, setShowInfo] = useState(false)
-  const [activeCall, setActiveCall] = useState<any>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -60,6 +59,31 @@ export default function ChatPage() {
       setMessages(data.messages || [])
     }
   }
+
+  const appendMessage = useCallback((msg: Message) => {
+    setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]))
+  }, [])
+
+  useEffect(() => {
+    if (!chatId || !session?.user?.id) return
+    let disposed = false
+    const chatChannel: any = { current: null }
+
+    getPusherClient().then((pusher) => {
+      if (disposed || !pusher) return
+      const channel = pusher.subscribe(`chat-${chatId}`)
+      chatChannel.current = channel
+      channel.bind('new-message', appendMessage)
+    })
+
+    return () => {
+      disposed = true
+      if (chatChannel.current) {
+        chatChannel.current.unbind_all()
+        chatChannel.current = null
+      }
+    }
+  }, [chatId, session?.user?.id, appendMessage])
 
   async function sendMessage(content?: string, type?: string, fileUrl?: string) {
     const msgContent = content || text
@@ -145,12 +169,7 @@ export default function ChatPage() {
   const chatImage = getChatImage()
 
   return (
-    <>
-      {activeCall && (
-        <CallUI call={activeCall} currentUserId={session?.user?.id || ''} onEnd={() => setActiveCall(null)} />
-      )}
-
-      <div className="flex h-screen bg-bg-chat">
+    <div className="flex h-screen bg-bg-chat">
         {/* Messages area */}
         <div className="flex-1 flex flex-col">
           {/* Chat header */}
@@ -184,8 +203,8 @@ export default function ChatPage() {
             <div className="flex items-center gap-1">
               {otherUser && (
                 <>
-                  <CallButton receiverId={otherUser.id} onCall={(call) => setActiveCall(call)} type="audio" />
-                  <CallButton receiverId={otherUser.id} onCall={(call) => setActiveCall(call)} type="video" />
+                  <CallButton receiverId={otherUser.id} type="audio" />
+                  <CallButton receiverId={otherUser.id} type="video" />
                 </>
               )}
               {otherUser && (
@@ -372,14 +391,13 @@ export default function ChatPage() {
                   </span>
                 </div>
                 <div className="mt-4 flex items-center justify-center gap-3">
-                  <CallButton receiverId={otherUser.id} onCall={(call) => setActiveCall(call)} type="audio" />
-                  <CallButton receiverId={otherUser.id} onCall={(call) => setActiveCall(call)} type="video" />
+                  <CallButton receiverId={otherUser.id} type="audio" />
+                  <CallButton receiverId={otherUser.id} type="video" />
                 </div>
               </div>
             )}
           </div>
         )}
-      </div>
-    </>
+    </div>
   )
 }

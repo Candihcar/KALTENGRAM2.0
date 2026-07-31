@@ -1,14 +1,24 @@
 import PusherServer from 'pusher'
 
-const pusherAppId = process.env.PUSHER_APP_ID!
-const pusherKey = process.env.NEXT_PUBLIC_PUSHER_KEY!
-const pusherSecret = process.env.PUSHER_SECRET!
-const pusherCluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER!
+function getPusherServer(): PusherServer | null {
+  const appId = process.env.PUSHER_APP_ID
+  const key = process.env.NEXT_PUBLIC_PUSHER_KEY
+  const secret = process.env.PUSHER_SECRET
+  const cluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER
+  if (!appId || !key || !secret || !cluster) return null
+  return new PusherServer({
+    appId,
+    key,
+    secret,
+    cluster,
+    useTLS: true,
+  })
+}
 
-export const pusherServer = new PusherServer({
-  appId: pusherAppId,
-  key: pusherKey,
-  secret: pusherSecret,
-  cluster: pusherCluster,
-  useTLS: true,
-})
+export async function triggerPusher(channel: string, event: string, data: unknown) {
+  const pusher = getPusherServer()
+  if (!pusher) return
+  try {
+    await pusher.trigger(channel, event, data)
+  } catch {}
+}

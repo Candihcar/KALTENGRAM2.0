@@ -2,41 +2,22 @@
 
 import { useState } from 'react'
 import toast from 'react-hot-toast'
-
-interface CallData {
-  id: string; chatId: string; callerId: string; receiverId: string; status: string
-  caller: { id: string; displayName: string; image: string | null }
-  receiver: { id: string; displayName: string; image: string | null }
-}
+import { useCall } from './CallProvider'
 
 export function CallButton({
   receiverId,
-  onCall,
   type,
 }: {
   receiverId: string
-  onCall: (call: CallData) => void
   type: 'audio' | 'video'
 }) {
+  const { startCall } = useCall()
   const [loading, setLoading] = useState(false)
 
-  async function startCall() {
+  async function handleClick() {
     setLoading(true)
     try {
-      const res = await fetch('/api/calls', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ receiverId }),
-      })
-
-      if (res.ok) {
-        const call = await res.json()
-        onCall(call)
-        toast.success(type === 'audio' ? 'Аудиозвонок...' : 'Видеозвонок...')
-      } else {
-        const data = await res.json()
-        toast.error(data.error || 'Ошибка звонка')
-      }
+      await startCall(receiverId)
     } catch {
       toast.error('Ошибка соединения')
     } finally {
@@ -46,7 +27,7 @@ export function CallButton({
 
   return (
     <button
-      onClick={startCall}
+      onClick={handleClick}
       disabled={loading}
       className={`p-2 hover:bg-bg-hover rounded-lg transition-colors ${loading ? 'opacity-50' : ''}`}
       title={type === 'audio' ? 'Аудиозвонок' : 'Видеозвонок'}

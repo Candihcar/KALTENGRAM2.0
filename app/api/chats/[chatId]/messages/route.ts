@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { triggerPusher } from '@/lib/pusher'
 
 export async function GET(request: Request, { params }: { params: { chatId: string } }) {
   const session = await getServerSession(authOptions)
@@ -67,15 +68,19 @@ export async function POST(request: Request, { params }: { params: { chatId: str
     })
 
     try {
-      const Pusher = require('pusher')
-      const pusher = new Pusher({
-        appId: process.env.PUSHER_APP_ID,
-        key: process.env.NEXT_PUBLIC_PUSHER_KEY,
-        secret: process.env.PUSHER_SECRET,
-        cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER,
-        useTLS: true,
+      await triggerPusher(`chat-${params.chatId}`, 'new-message', message)
+
+      const members = await prisma.chatMember.findMany({
+        where: { chatId: params.chatId },
+        select: { userId: true },
       })
-      await pusher.trigger(`chat-${params.chatId}`, 'new-message', message)
+      await Promise.all(
+        members.map((m) =>
+          triggerPusher(`user-${m.userId}`, 'chat-updated', {
+            chatId: params.chatId,
+          })
+        )
+      )
     } catch {}
 
     return NextResponse.json(message, { status: 201 })

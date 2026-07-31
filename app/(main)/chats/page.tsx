@@ -5,8 +5,8 @@ import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { formatDate, getInitials } from '@/lib/utils'
+import { getPusherClient } from '@/lib/pusher-client'
 import { CallButton } from '@/components/Call/CallButton'
-import { CallUI } from '@/components/Call/CallUI'
 
 interface Chat {
   id: string; type: string; name: string | null; image: string | null; updatedAt: string
@@ -24,9 +24,32 @@ export default function ChatsPage() {
   const [showSearch, setShowSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [showMenu, setShowMenu] = useState(false)
-  const [activeCall, setActiveCall] = useState<any>(null)
 
   useEffect(() => { fetchChats() }, [])
+
+  useEffect(() => {
+    if (!session?.user?.id) return
+    let disposed = false
+    const userChannel: any = { current: null }
+
+    getPusherClient().then((pusher) => {
+      if (disposed || !pusher) return
+      const channel = pusher.subscribe(`user-${session.user.id}`)
+      userChannel.current = channel
+      channel.bind('chat-updated', () => {
+        fetchChats()
+      })
+    })
+
+    return () => {
+      disposed = true
+      if (userChannel.current) {
+        userChannel.current.unbind_all()
+        userChannel.current = null
+      }
+    }
+  }, [session?.user?.id])
+
   useEffect(() => { if (!showSearch) { setSearchQuery(''); setUsers([]) } }, [showSearch])
 
   useEffect(() => {
@@ -109,12 +132,7 @@ export default function ChatsPage() {
   const [selectedUsers, setSelectedUsers] = useState<any[]>([])
 
   return (
-    <>
-      {activeCall && (
-        <CallUI call={activeCall} currentUserId={session?.user?.id || ''} onEnd={() => setActiveCall(null)} />
-      )}
-
-      <div className="flex h-screen">
+    <div className="flex h-screen">
         {/* Sidebar */}
         <div className="w-96 bg-bg flex flex-col h-full border-r border-gray-700/20 flex-shrink-0">
           {/* Header */}
@@ -288,7 +306,6 @@ export default function ChatsPage() {
                       <div className="hidden group-hover:flex items-center gap-0.5 ml-1 flex-shrink-0">
                         <CallButton
                           receiverId={otherId}
-                          onCall={(call) => setActiveCall(call)}
                           type="audio"
                         />
                       </div>
@@ -329,6 +346,6 @@ export default function ChatsPage() {
           )}
         </div>
       </div>
-    </>
+    </div>
   )
 }
