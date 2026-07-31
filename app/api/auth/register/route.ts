@@ -37,6 +37,7 @@ export async function POST(request: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: error.errors[0].message }, { status: 400 })
     }
-    return NextResponse.json({ error: 'Ошибка сервера' }, { status: 500 })
+    const message = error instanceof Error ? error.message : String(error)
+    return NextResponse.json({ error: `Ошибка сервера: ${message}` }, { status: 500 })
   }
 }
