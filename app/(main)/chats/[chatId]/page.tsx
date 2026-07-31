@@ -238,7 +238,7 @@ export default function ChatPage() {
                 <div className="min-w-0">
                   <h2 className="font-medium text-sm truncate">{chatName}</h2>
                   <p className={`text-xs ${isOtherOnline() ? 'text-success' : 'text-text-muted'}`}>
-                    {isOtherOnline() ? 'В сети' : chat.type === 'GROUP' ? `${chat.members.length} участников` : formatLastSeen(otherUser.lastSeen)}
+                    {isOtherOnline() ? 'В сети' : chat.type === 'GROUP' ? `${chat.members.length} участников` : otherUser?.lastSeen ? formatLastSeen(otherUser.lastSeen) : 'Не в сети'}
                   </p>
                 </div>
               </button>
