@@ -114,11 +114,12 @@ export default function ChatPage() {
     if (!chat || !unlocked || chat.type === 'GROUP') return
     const other = getOtherUser()
     if (!other) return
+    const otherId = other.id
     let disposed = false
     async function load() {
       const st = getE2EState()
-      const pubs = await getPubKeys([other.id])
-      const otherPub = pubs.get(other.id)
+      const pubs = await getPubKeys([otherId])
+      const otherPub = pubs.get(otherId)
       if (st && otherPub) {
         try {
           const words = await e2eFingerprintEmoji(st.pubB64, otherPub)
