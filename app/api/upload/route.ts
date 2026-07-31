@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { enforceRateLimit } from '@/lib/rate-limit'
 
 const MAX_SIZE = 4 * 1024 * 1024
 
@@ -9,6 +10,9 @@ export async function POST(request: Request) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Не авторизован' }, { status: 401 })
   }
+
+  const rateLimited = enforceRateLimit(request, 30, 60_000, 'upload', session.user.id)
+  if (rateLimited) return rateLimited
 
   try {
     const formData = await request.formData()

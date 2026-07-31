@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { triggerPusher } from '@/lib/pusher'
+import { enforceRateLimit } from '@/lib/rate-limit'
 
 export async function GET(request: Request, { params }: { params: { chatId: string } }) {
   const session = await getServerSession(authOptions)
@@ -37,6 +38,9 @@ export async function POST(request: Request, { params }: { params: { chatId: str
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Не авторизован' }, { status: 401 })
   }
+
+  const rateLimited = enforceRateLimit(request, 30, 60_000, 'message', session.user.id)
+  if (rateLimited) return rateLimited
 
   try {
     const { content, type, fileUrl, replyToId, attachments } = await request.json()

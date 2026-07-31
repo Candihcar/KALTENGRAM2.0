@@ -3,12 +3,16 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { triggerPusher } from '@/lib/pusher'
+import { enforceRateLimit } from '@/lib/rate-limit'
 
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Не авторизован' }, { status: 401 })
   }
+
+  const rateLimited = enforceRateLimit(request, 30, 60_000, 'presence', session.user.id)
+  if (rateLimited) return rateLimited
 
   try {
     const { online } = await request.json()

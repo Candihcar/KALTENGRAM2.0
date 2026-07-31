@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { hash } from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
 import { generateUsername } from '@/lib/utils'
+import { enforceRateLimit } from '@/lib/rate-limit'
 import { z } from 'zod'
 
 const schema = z.object({
@@ -12,6 +13,9 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   try {
+    const rateLimited = enforceRateLimit(request, 5, 60_000, 'register')
+    if (rateLimited) return rateLimited
+
     const body = await request.json()
     const { email, password, displayName } = schema.parse(body)
 

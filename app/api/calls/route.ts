@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { triggerPusher } from '@/lib/pusher'
+import { enforceRateLimit } from '@/lib/rate-limit'
 
 function sanitizeCall(call: any) {
   return {
@@ -17,6 +18,9 @@ export async function POST(request: Request) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Не авторизован' }, { status: 401 })
   }
+
+  const rateLimited = enforceRateLimit(request, 10, 60_000, 'call', session.user.id)
+  if (rateLimited) return rateLimited
 
   try {
     const { receiverId } = await request.json()
