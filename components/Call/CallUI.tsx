@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { getPusherClient } from '@/lib/pusher-client'
 import { e2eBuf, e2eImportPublic } from '@/lib/e2e'
 import { getE2EState, getPubKeys } from '@/lib/e2e-store'
+import { playRingback } from './tones'
 import type { CallData } from './CallProvider'
 
 const EMOJI = [
@@ -56,6 +57,7 @@ export function CallUI({
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user')
   const [duration, setDuration] = useState(0)
   const [connected, setConnected] = useState(false)
+  const [justConnected, setJustConnected] = useState(false)
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
   const [previewPos, setPreviewPos] = useState({ x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
@@ -79,6 +81,8 @@ export function CallUI({
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([])
   const dragStartRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null)
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const connectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const ringbackRef = useRef<{ stop: () => void } | null>(null)
 
   useEffect(() => {
     let disposed = false
@@ -116,6 +120,11 @@ export function CallUI({
     function cleanup() {
       if (endedRef.current) return
       endedRef.current = true
+      if (ringbackRef.current) {
+        ringbackRef.current.stop()
+        ringbackRef.current = null
+      }
+      if (connectTimerRef.current) clearTimeout(connectTimerRef.current)
       if (channelRef.current) {
         channelRef.current.unbind_all()
         channelRef.current = null
@@ -227,7 +236,16 @@ export function CallUI({
         }
 
         peer.onconnectionstatechange = () => {
-          if (peer.connectionState === 'connected') setConnected(true)
+          if (peer.connectionState === 'connected') {
+            setConnected(true)
+            setJustConnected(true)
+            if (ringbackRef.current) {
+              ringbackRef.current.stop()
+              ringbackRef.current = null
+            }
+            if (connectTimerRef.current) clearTimeout(connectTimerRef.current)
+            connectTimerRef.current = setTimeout(() => setJustConnected(false), 2000)
+          }
           if (
             (peer.connectionState === 'failed' || peer.connectionState === 'disconnected') &&
             !endedRef.current
@@ -240,6 +258,7 @@ export function CallUI({
         await updateStatus('ONGOING')
 
         if (isCaller) {
+          ringbackRef.current = playRingback()
           const offer = await peer.createOffer()
           await peer.setLocalDescription(offer)
           await sendSignal({ from: currentUserId, type: 'offer', sdp: offer })
@@ -260,6 +279,11 @@ export function CallUI({
       disposed = true
       clearInterval(timer)
       endedRef.current = true
+      if (ringbackRef.current) {
+        ringbackRef.current.stop()
+        ringbackRef.current = null
+      }
+      if (connectTimerRef.current) clearTimeout(connectTimerRef.current)
       if (channelRef.current) {
         channelRef.current.unbind_all()
         channelRef.current = null
@@ -470,6 +494,11 @@ export function CallUI({
 
   async function hangUp() {
     endedRef.current = true
+    if (ringbackRef.current) {
+      ringbackRef.current.stop()
+      ringbackRef.current = null
+    }
+    if (connectTimerRef.current) clearTimeout(connectTimerRef.current)
     try {
       await fetch('/api/calls', {
         method: 'PATCH',
@@ -571,14 +600,24 @@ export function CallUI({
               }`}
             >
               {connected ? (
-                formatDuration(duration)
+                justConnected ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-2 h-2 bg-success rounded-full animate-pulse-dot" />
+                    Соединение...
+                  </span>
+                ) : (
+                  formatDuration(duration)
+                )
               ) : isCaller ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="w-2 h-2 bg-success rounded-full animate-pulse-dot" />
-                  Звонит...
+                  Звонок...
                 </span>
               ) : (
-                'Подключение...'
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-2 h-2 bg-success rounded-full animate-pulse-dot" />
+                  Соединение...
+                </span>
               )}
             </p>
             {connected && (

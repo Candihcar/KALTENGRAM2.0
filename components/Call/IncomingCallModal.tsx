@@ -1,5 +1,7 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
+import { playIncomingRing } from './tones'
 import type { CallData } from './CallProvider'
 
 export function IncomingCallModal({
@@ -12,6 +14,15 @@ export function IncomingCallModal({
   onDecline: () => void
 }) {
   const caller = call.caller
+  const ringRef = useRef<{ stop: () => void } | null>(null)
+
+  useEffect(() => {
+    ringRef.current = playIncomingRing()
+    return () => {
+      ringRef.current?.stop()
+      ringRef.current = null
+    }
+  }, [])
 
   return (
     <div className="fixed inset-0 z-50 bg-gray-950 flex flex-col items-center justify-center">
