@@ -189,7 +189,7 @@ export default function ChatPage() {
 
     getPusherClient().then((pusher) => {
       if (disposed || !pusher) return
-      const channel = pusher.subscribe(`chat-${chatId}`)
+      const channel = pusher.subscribe(`private-chat-${chatId}`)
       chatChannel.current = channel
       channel.bind('new-message', () => {
         fetchMessages()

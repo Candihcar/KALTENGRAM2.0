@@ -21,7 +21,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Нет доступа' }, { status: 403 })
     }
 
-    await triggerPusher(`call-${callId}`, 'call-signal', {
+    await triggerPusher(`private-call-${callId}`, 'call-signal', {
       ...data,
       from: session.user.id,
     })

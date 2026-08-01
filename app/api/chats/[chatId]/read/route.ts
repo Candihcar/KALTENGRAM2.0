@@ -36,7 +36,7 @@ export async function POST(request: Request, { params }: { params: { chatId: str
       where: { chatId: params.chatId, readAt: now },
       select: { id: true },
     })
-    await triggerPusher(`chat-${params.chatId}`, 'messages-read', {
+    await triggerPusher(`private-chat-${params.chatId}`, 'messages-read', {
       ids: marked.map((m) => m.id),
       readAt: now.toISOString(),
     })

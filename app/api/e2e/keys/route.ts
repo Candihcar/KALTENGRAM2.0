@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { enforceRateLimit } from '@/lib/rate-limit'
+import { getMySpaceIds } from '@/lib/space'
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions)
@@ -16,12 +17,19 @@ export async function GET(request: Request) {
   if (userIds) {
     const ids = userIds.split(',').filter(Boolean).slice(0, 100)
     if (!ids.length) return NextResponse.json({})
+    const mySpaceIds = await getMySpaceIds(session.user.id)
+    const shared = await prisma.spaceMember.findMany({
+      where: { userId: { in: ids }, spaceId: { in: mySpaceIds } },
+      select: { userId: true },
+    })
+    const allowed = new Set(shared.map((s) => s.userId))
+    allowed.add(session.user.id)
     const users = await prisma.user.findMany({
       where: { id: { in: ids }, e2ePub: { not: null } },
       select: { id: true, e2ePub: true },
     })
     const map: Record<string, string> = {}
-    for (const u of users) if (u.e2ePub) map[u.id] = u.e2ePub
+    for (const u of users) if (u.e2ePub && allowed.has(u.id)) map[u.id] = u.e2ePub
     return NextResponse.json(map)
   }
 

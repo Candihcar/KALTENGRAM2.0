@@ -189,7 +189,7 @@ export function CallUI({
     async function init() {
       const pusher = await getPusherClient()
       if (pusher) {
-        const channel = pusher.subscribe(`call-${call.id}`)
+        const channel = pusher.subscribe(`private-call-${call.id}`)
         channelRef.current = channel
         channel.bind('call-signal', handleSignal)
         channel.bind('call-updated', ({ call: updated }: { call: CallData }) => {

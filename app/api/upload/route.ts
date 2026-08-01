@@ -26,6 +26,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Поддерживаются только изображения' }, { status: 400 })
     }
 
+    if (file.type === 'image/svg+xml') {
+      return NextResponse.json({ error: 'SVG запрещён' }, { status: 400 })
+    }
+
     if (file.size > MAX_SIZE) {
       return NextResponse.json({ error: 'Файл слишком большой (макс 4MB)' }, { status: 400 })
     }

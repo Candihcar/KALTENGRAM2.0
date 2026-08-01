@@ -74,7 +74,7 @@ export async function POST(request: Request) {
       },
     })
 
-    await triggerPusher(`user-${receiverId}`, 'incoming-call', sanitizeCall(call))
+    await triggerPusher(`private-user-${receiverId}`, 'incoming-call', sanitizeCall(call))
 
     return NextResponse.json(call, { status: 201 })
   } catch {
@@ -102,6 +102,10 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'Звонок не найден' }, { status: 404 })
     }
 
+    if (existing.callerId !== session.user.id && existing.receiverId !== session.user.id) {
+      return NextResponse.json({ error: 'Нет доступа' }, { status: 403 })
+    }
+
     const call = await prisma.call.update({
       where: { id: callId },
       data: {
@@ -117,10 +121,10 @@ export async function PATCH(request: Request) {
       },
     })
 
-    await triggerPusher(`call-${callId}`, 'call-updated', { call: sanitizeCall(call) })
+    await triggerPusher(`private-call-${callId}`, 'call-updated', { call: sanitizeCall(call) })
 
     if (status === 'ENDED' && existing.status === 'RINGING') {
-      await triggerPusher(`user-${existing.receiverId}`, 'call-cancelled', { callId })
+      await triggerPusher(`private-user-${existing.receiverId}`, 'call-cancelled', { callId })
     }
 
     return NextResponse.json(call)

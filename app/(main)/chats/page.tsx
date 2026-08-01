@@ -60,7 +60,7 @@ export default function ChatsPage() {
 
     getPusherClient().then((pusher) => {
       if (disposed || !pusher) return
-      const channel = pusher.subscribe(`user-${session.user.id}`)
+      const channel = pusher.subscribe(`private-user-${session.user.id}`)
       userChannel.current = channel
       channel.bind('chat-updated', () => {
         fetchChats()

@@ -12,6 +12,7 @@ export async function getPusherClient(): Promise<Pusher | null> {
     client = new Pusher(key, {
       cluster,
       forceTLS: true,
+      authEndpoint: '/api/pusher/auth',
     })
   }
   return client

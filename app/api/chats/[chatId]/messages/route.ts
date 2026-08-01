@@ -111,7 +111,7 @@ export async function POST(request: Request, { params }: { params: { chatId: str
     })
 
     try {
-      await triggerPusher(`chat-${params.chatId}`, 'new-message', { id: message.id })
+      await triggerPusher(`private-chat-${params.chatId}`, 'new-message', { id: message.id })
 
       const members = await prisma.chatMember.findMany({
         where: { chatId: params.chatId },
@@ -119,7 +119,7 @@ export async function POST(request: Request, { params }: { params: { chatId: str
       })
       await Promise.all(
         members.map((m) =>
-          triggerPusher(`user-${m.userId}`, 'chat-updated', {
+          triggerPusher(`private-user-${m.userId}`, 'chat-updated', {
             chatId: params.chatId,
           })
         )

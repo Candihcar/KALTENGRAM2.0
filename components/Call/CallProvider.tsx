@@ -48,7 +48,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
     getPusherClient().then((pusher) => {
       if (disposed || !pusher) return
-      const channel = pusher.subscribe(`user-${userId}`)
+      const channel = pusher.subscribe(`private-user-${userId}`)
       channelRef.current = channel
       channel.bind('incoming-call', (call: CallData) => {
         setIncomingCall(call)
